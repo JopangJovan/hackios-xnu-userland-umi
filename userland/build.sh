@@ -567,6 +567,60 @@ if [ -f ../fw-wifi/wpss.mdt ]; then
 	# SHARE=1: leave it out, for an image that is going to somebody else -- it is a passphrase
 	if [ -z "$SHARE" ] && [ -f ../fw-wifi/network ]; then install -m 0600 ../fw-wifi/network root/fw/network; fi
 fi
+# UMI has a QCA6390 CNSS/PCIe radio, not Redwood's WCN6750/WPSS device. Keep its firmware
+# under its vendor directory so the future CNSS path can request the expected names.
+umi_firmware() {
+	[ "${DEVICE:-}" = umi ] || return 0
+	local destination=$1 f
+	mkdir -p "$destination"
+	if [ -d ../fw-wifi/qca6390 ]; then
+		mkdir -p "$destination/qca6390"
+		for f in ../fw-wifi/qca6390/*; do
+			[ -f "$f" ] || continue
+			install -m 0644 "$f" "$destination/qca6390/"
+		done
+	fi
+	if [ -f ../fw-wifi/WCNSS_qcom_cfg.ini ]; then
+		mkdir -p "$destination/qca6390"
+		install -m 0644 ../fw-wifi/WCNSS_qcom_cfg.ini "$destination/qca6390/"
+	fi
+	for f in aw8697_haptic.bin aw8697_haptic_a.bin aw8697_rtp_1.bin; do
+		[ -f "../fw-haptic/$f" ] || continue
+		install -m 0644 "../fw-haptic/$f" "$destination/"
+	done
+	if compgen -G '../fw-audio/cs35l41/*' >/dev/null; then
+		mkdir -p "$destination/cs35l41"
+		for f in ../fw-audio/cs35l41/*; do
+			[ -f "$f" ] || continue
+			install -m 0644 "$f" "$destination/cs35l41/"
+		done
+	fi
+	if [ -d ../fw-audio/acdbdata ]; then
+		mkdir -p "$destination/acdbdata"
+		cp -a ../fw-audio/acdbdata/. "$destination/acdbdata/"
+	fi
+}
+
+# Include UMI assets in the small image used before iOS's root is mounted. They remain local
+# firmware inputs and are never committed to either source repository.
+umi_firmware root/fw
+
+# Segment names are device-specific. UMI's signed MDT references adsp.b00 through adsp.b18,
+# including b00 and b01; Redwood's image starts at b02 and keeps its existing selection.
+install_adsp_firmware() {
+	local destination=$1 f
+	[ -f ../fw-audio/adsp.mdt ] || return 0
+	mkdir -p "$destination"
+	install -m 0644 ../fw-audio/adsp.mdt "$destination/"
+	if [ "${DEVICE:-}" = umi ]; then
+		for f in ../fw-audio/adsp.b[0-9][0-9]; do
+			[ -f "$f" ] || continue
+			install -m 0644 "$f" "$destination/"
+		done
+	else
+		install -m 0644 ../fw-audio/adsp.b0[2-9] ../fw-audio/adsp.b[1-9][0-9] "$destination/"
+	fi
+}
 # ... and the vibration motor's waveforms, the phone's /vendor/firmware/aw8697_haptic.bin, from ../fw-haptic
 # (bsd/dev/redwood_haptic.c, haptic=3; 3.6 KB, the vendor's and not in the repository either)
 if [ -f ../fw-haptic/aw8697_haptic.bin ]; then
@@ -595,8 +649,7 @@ done
 # adsp.mdt and adsp.b02 to adsp.b36, 20 MB. Only when asked for: beside GL=1 the payload would be more than the 64 MB
 # the loader takes.
 if [ -n "$ADSP" ] && [ -f ../fw-audio/adsp.mdt ]; then
-	mkdir -p root/fw
-	install -m 0644 ../fw-audio/adsp.mdt ../fw-audio/adsp.b0[2-9] ../fw-audio/adsp.b[1-9][0-9] root/fw/
+	install_adsp_firmware root/fw
 fi
 # Firmware that is not there is otherwise silent at build time and speaks only much later, deep in a
 # device log -- "adreno: THE GPU IS NOT STARTED: the small image has no fw/a660_gmu.bin" cost a phone
@@ -672,9 +725,9 @@ if [ -n "$FLASHBOOT" ] && [ -f $CACHE/dyld_shared_cache_arm64 ]; then
 	# reads the firmware as soon as there is a root (this image, adsp=1), the configuration maybe later -- by then
 	# from the iOS volume's /fw, which src/init.c (flash_root) binds to this
 	if [ -f ../fw-audio/adsp.mdt ]; then
-		mkdir -p flashboot/fw
-		cp ../fw-audio/adsp.mdt ../fw-audio/adsp.b0[2-9] ../fw-audio/adsp.b[1-9][0-9] flashboot/fw/
+		install_adsp_firmware flashboot/fw
 	fi
+	umi_firmware flashboot/fw
 	if [ -f ../fw-audio/aw882xx_acf.bin ]; then
 		mkdir -p flashboot/fw
 		cp ../fw-audio/aw882xx_acf.bin flashboot/fw/
@@ -742,9 +795,9 @@ if [ -f $IOS/system.manifest ] && [ -f $CACHE/dyld_shared_cache_arm64 ] &&
 	# the audio DSP's firmware, the phone's own from ../fw-audio (never in the repository), where the kernel reads
 	# it once the root is mounted (bsd/dev/redwood_adsp.c, adsp=1): 20 MB that do not fit beside GL=1 in the small image
 	if [ -f ../fw-audio/adsp.mdt ]; then
-		mkdir -p sysroot/fw
-		cp ../fw-audio/adsp.mdt ../fw-audio/adsp.b0[2-9] ../fw-audio/adsp.b[1-9][0-9] sysroot/fw/
+		install_adsp_firmware sysroot/fw
 	fi
+	umi_firmware sysroot/fw
 	# ... and the speaker amplifiers' configuration, the phone's /vendor/etc/aw882xx_acf.bin (bsd/dev/redwood_speaker.c,
 	# for sound=3): Android's own register values, which are not in the repository either
 	if [ -f ../fw-audio/aw882xx_acf.bin ]; then
