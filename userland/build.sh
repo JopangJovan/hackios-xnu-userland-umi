@@ -116,6 +116,9 @@ IOS_JOBS=${JOBS-"
 # (Count a QEMU run log with its duplicate lines removed: run-ios.sh prints launchd's log twice.)
 # WIFID=0 leaves it out.
 [ "${WIFID-1}" != 0 ] && IOS_JOBS="$IOS_JOBS com.apple.wifid"
+# AudioSession and CoreHaptics need mediaserverd; its AVAudioSession setup waits for NanoRegistry's
+# paired-device Mach service. Keep both jobs in every image so the server and its clients can start.
+IOS_JOBS="$IOS_JOBS com.apple.mediaserverd com.apple.nanoregistryd"
 # The programs (file names) started with a library of ours inside them: "LIBRARY NAME..." per line
 # (src/inject.c is libredwood.dylib, src/inject_sb.c is libredwood-sb.dylib, src/inject_media.c is
 # libredwood-media.dylib).
