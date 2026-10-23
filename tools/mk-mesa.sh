@@ -23,8 +23,8 @@
 #   libhackiosair.dylib  the same path as a library (tools/mesa/air/air_metal.h), install name
 #                        /hackios/lib/libhackiosair.dylib, which is what userland's Metal driver
 #                        links against to compile a function Metal hands it
-# Needs on this machine: meson, ninja, bison, flex, python3 with venv (Mako is installed into a
-# private environment), llvm-ar.
+# Needs on this machine: bison, flex, llvm-ar, and python3 with venv or uv; Mako (and meson and ninja,
+# where the machine has none) go into a private environment.
 #
 # This build is NOT reproducible byte for byte, so do not compare one of its outputs with another
 # by hash. Measured on 20 October: two builds from the same source tree, the second with
@@ -74,9 +74,21 @@ cp -r "$ROOT/tools/mesa/hackios-drm" mesa-$VERSION/src/hackios-drm
 # reaches it. Copied rather than linked, because this tree is cross-built.
 rm -rf mesa-$VERSION/src/compiler/air
 cp -r "$ROOT/tools/mesa/air" mesa-$VERSION/src/compiler/air
+# A private Python environment for Mako (and meson and ninja, when the machine has none): python3's own venv,
+# or -- where python3 has no ensurepip (Debian/Ubuntu without python3-venv, and no sudo to add it) -- uv's.
 if [ ! -x venv/bin/python3 ]; then
-	python3 -m venv venv
-	venv/bin/pip -q install mako pyyaml packaging
+	rm -rf venv
+	if python3 -m venv venv 2>/dev/null && [ -x venv/bin/pip ]; then
+		venv/bin/pip -q install mako pyyaml packaging
+		command -v meson >/dev/null && command -v ninja >/dev/null || venv/bin/pip -q install meson ninja
+	elif UV=$(command -v uv || ls "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv" 2>/dev/null | head -1) && [ -n "$UV" ]; then
+		rm -rf venv
+		"$UV" venv -q venv
+		"$UV" pip install -q --python venv/bin/python3 mako pyyaml packaging meson ninja
+	else
+		echo "mk-mesa.sh: no way to make a Python environment: install python3-venv, or uv (no root needed)" >&2
+		exit 1
+	fi
 fi
 export PATH=$B/venv/bin:$PATH
 
