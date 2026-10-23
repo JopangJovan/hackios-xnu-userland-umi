@@ -22,8 +22,8 @@
  *     copying 337 signatures we do not implement, and the only thing the two assertions in
  *     MTLAddDevice read is conformsToProtocol:. One call says the same thing truthfully.
  *     MTLDeviceSPI adopts MTLDevice, so one declaration satisfies both.
- *   - -initWithAcceleratorPort: opens this port's OWN gpu service, `RedwoodGPU`, the way
- *     Mesa's shim does (tools/mesa/redwood-drm/redwood_drm.c: IOServiceOpen with type 0,
+ *   - -initWithAcceleratorPort: opens this port's OWN gpu service, `HKGPU`, the way
+ *     Mesa's shim does (tools/mesa/hackios-drm/hk_drm.c: IOServiceOpen with type 0,
  *     then msm-shaped requests through IOConnectCallStructMethod). That is the road the
  *     resource layer will take, and it already carries Mesa's own dispatches today. The
  *     IOGPU road was measured shut: IOServiceOpen on our IOAcceleratorES service with
@@ -31,7 +31,7 @@
  *
  * The first resource is here too. A Metal buffer on this port is a GEM allocation of the
  * kernel's own gpu driver, made and mapped exactly the way Mesa's shim makes and maps one
- * (tools/mesa/redwood-drm/redwood_drm.c): kMsmGemNew (0x42) for the memory, MSM_INFO_GET_IOVA
+ * (tools/mesa/hackios-drm/hk_drm.c): kMsmGemNew (0x42) for the memory, MSM_INFO_GET_IOVA
  * through kMsmGemInfo (0x43) for the address the GPU sees, IOConnectMapMemory64 for the
  * address the processor sees, kDrmGemClose (0x09) to give it back. The kernel makes that
  * memory write-combined, with no cache of this processor between the program and what the
@@ -46,7 +46,7 @@
  * those bytes were checked against our own AIR reader over all eleven functions of
  * AV1SW.metallib -- same lengths, same checksums (docs/metal.md 10.12). The front end that
  * reads them lives in Mesa, so the compiling and the dispatching are asked of
- * /redwood/lib/libredwoodair.dylib through the contract in tools/mesa/air/air_metal.h.
+ * /hackios/lib/libhackiosair.dylib through the contract in tools/mesa/air/air_metal.h.
  *
  * That library is loaded with dlopen rather than linked, for a measured reason: the device
  * object must exist even when there is no GPU. The port starts the Adreno only with the
@@ -84,7 +84,7 @@
  * resolve, and the rectangle half of a viewport -- the rest of docs/metal.md 10.8.
  *
  * Every line this file writes carries the PROCESS it was written by
- * (`redwoodmetal[progname pid]:`, see rw_print): a driver is a library, four or five
+ * (`hkmetal[progname pid]:`, see rw_print): a driver is a library, four or five
  * Metal clients are alive in one boot of this port, and a refusal nobody can attribute
  * is half a refusal.
  */
@@ -96,7 +96,7 @@
 #include <IOKit/IOKitLib.h>
 #include <dlfcn.h>
 
-#include "redwood_drawable.h"
+#include "hk_drawable.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -433,8 +433,8 @@ _Static_assert(sizeof(struct rwa_render_info) == 116 &&
  * WHOSE SENTENCE THIS IS. Every line this driver writes goes through here, and the reason
  * is an attribution that could not be made: a boot's log held
  *
- *     redwoodmetal: fragment buffer 2 at offset 1164: ...
- *     redwoodmetal: no drawable: pixel format 500 is not one ...
+ *     hkmetal: fragment buffer 2 at offset 1164: ...
+ *     hkmetal: no drawable: pixel format 500 is not one ...
  *
  * one after the other, and four or five Metal clients were alive in that boot (backboardd,
  * SpringBoard, chronod and this port's own application). The drawable refusal was pinned on
@@ -442,7 +442,7 @@ _Static_assert(sizeof(struct rwa_render_info) == 116 &&
  * the offset refusals could not be attributed at all. A driver is a library: its lines are
  * written by somebody else's process, and the process is the first thing a reader needs.
  *
- * So the prefix is `redwoodmetal[progname pid]:`, built once per process -- getprogname()
+ * So the prefix is `hkmetal[progname pid]:`, built once per process -- getprogname()
  * is the name launchd or the shell gave it, which is what the log's other lines carry too.
  *
  * It flushes, for the reason RW_ONCE below flushes: stdio to a console is block-buffered,
@@ -462,7 +462,7 @@ rw_print(const char *fmt, ...)
 	va_list ap;
 
 	if (who[0] == '\0') {
-		snprintf(who, sizeof(who), "redwoodmetal[%s %d]", getprogname(), getpid());
+		snprintf(who, sizeof(who), "hkmetal[%s %d]", getprogname(), getpid());
 	}
 	printf("%s: ", who);
 	va_start(ap, fmt);
@@ -535,7 +535,7 @@ mesa_available(void)
 		return mesa.handle != NULL;
 	}
 	tried = true;
-	mesa.handle = dlopen("/redwood/lib/libredwoodair.dylib", RTLD_NOW);
+	mesa.handle = dlopen("/hackios/lib/libhackiosair.dylib", RTLD_NOW);
 	if (mesa.handle == NULL) {
 		rw_print("no compiler library: %s\n", dlerror());
 		return false;
@@ -783,7 +783,7 @@ rw_blend_result(unsigned enabled_mask, unsigned write_masks)
 @interface _MTLCommandEncoder : _MTLObjectWithLabel
 - (instancetype)initWithCommandBuffer:(id)commandBuffer;
 /* Declared because it is CALLED: that initialiser retains the command buffer and this is the
- * only thing that gives it back (see -[RedwoodMetalRenderEncoder endEncoding]). */
+ * only thing that gives it back (see -[HKMetalRenderEncoder endEncoding]). */
 - (void)endEncoding;
 @end
 
@@ -853,7 +853,7 @@ _Static_assert(sizeof(struct MTLTargetDeviceArch) == 24 &&
 	       __builtin_offsetof(struct MTLTargetDeviceArch, name) == 0x10,
 	       "Metal reads the name at +0x10 (0x181a3ca3c) and the version at +0x8");
 
-@interface RedwoodMetalDevice : _MTLDevice {
+@interface HKMetalDevice : _MTLDevice {
 	io_service_t _acceleratorService;   /* the IOAcceleratorES service Metal handed us */
 	io_connect_t _gpu;                  /* this port's own gpu client, or IO_OBJECT_NULL */
 	struct rwa_device *_mesa;           /* Mesa's screen and context, or NULL */
@@ -867,7 +867,7 @@ _Static_assert(sizeof(struct MTLTargetDeviceArch) == 24 &&
  * driver installs into Metal's own _MTLFunction forwards to (the end of this file says
  * why it has to): the layout is read out of the function's own bitcode, which is the one
  * thing Metal has here and its reflection has not. */
-- (id)redwoodArgumentEncoderForFunction:(id)function bufferIndex:(NSUInteger)index;
+- (id)hkArgumentEncoderForFunction:(id)function bufferIndex:(NSUInteger)index;
 @end
 
 /* Declaring the protocol is the gate both assertions in MTLAddDevice read. Done at +load
@@ -893,7 +893,7 @@ ensure_spi(Class cls)
 }
 
 /* One request of this port's own gpu client, shaped like the msm ioctl it stands for
- * (iokit/Kernel/RedwoodGPU.cpp: kMsmGetParam = 0x40, struct msm_param). The parameters
+ * (iokit/Kernel/HKGPU.cpp: kMsmGetParam = 0x40, struct msm_param). The parameters
  * worth asking for are 0x03 CHIP_ID (with the speed bin in the high half), 0x02 GMEM_SIZE
  * and 0x04 MAX_FREQ. Mesa reaches the same client the same way. */
 static bool
@@ -918,7 +918,7 @@ gpu_param(io_connect_t gpu, uint32_t which, uint64_t *value)
 }
 
 /* The kernel's gpu interface, by the numbers its own header gives
- * (iokit/Kernel/RedwoodGPU.cpp). */
+ * (iokit/Kernel/HKGPU.cpp). */
 enum {
 	kDrmGemClose  = 0x09,
 	kMsmGetParam  = 0x40,
@@ -933,11 +933,11 @@ struct gem_close { uint32_t handle, pad; };
 
 #define RW_MAX_BUFFERS 32
 
-@class RedwoodMetalCommandQueue;
-@class RedwoodMetalWork;
+@class HKMetalCommandQueue;
+@class HKMetalWork;
 
-@interface RedwoodMetalComputePipeline : _MTLComputePipelineState {
-	RedwoodMetalDevice *_owner;
+@interface HKMetalComputePipeline : _MTLComputePipelineState {
+	HKMetalDevice *_owner;
 	struct rwa_compute *_compute;
 	struct rwa_compute_info _info;
 }
@@ -946,30 +946,30 @@ struct gem_close { uint32_t handle, pad; };
 /* One recorded dispatch. Metal's rule is that nothing runs until the command buffer is
  * committed, so an encoder records and the command buffer runs; dispatching at encode time
  * would be less code and would quietly reorder work. */
-@interface RedwoodMetalComputePipeline (RedwoodMetalInternal)
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device
+@interface HKMetalComputePipeline (HKMetalInternal)
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device
 			     compute:(struct rwa_compute *)compute
 				info:(const struct rwa_compute_info *)info
 			  descriptor:(id)descriptor;
 - (struct rwa_compute *)compute;
 @end
 
-@interface RedwoodMetalCommandQueue : _MTLCommandQueue
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device descriptor:(id)descriptor;
+@interface HKMetalCommandQueue : _MTLCommandQueue
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device descriptor:(id)descriptor;
 @end
 
-@interface RedwoodMetalCommandBuffer : _MTLCommandBuffer
-- (instancetype)initWithRedwoodQueue:(RedwoodMetalCommandQueue *)queue;
-- (void)recordWork:(RedwoodMetalWork *)work;
+@interface HKMetalCommandBuffer : _MTLCommandBuffer
+- (instancetype)initWithHKQueue:(HKMetalCommandQueue *)queue;
+- (void)recordWork:(HKMetalWork *)work;
 - (id)device;
 @end
 
-@interface RedwoodMetalComputeEncoder : _MTLCommandEncoder
-- (instancetype)initWithRedwoodCommandBuffer:(RedwoodMetalCommandBuffer *)commandBuffer;
+@interface HKMetalComputeEncoder : _MTLCommandEncoder
+- (instancetype)initWithHKCommandBuffer:(HKMetalCommandBuffer *)commandBuffer;
 @end
 
-@interface RedwoodMetalRenderEncoder : _MTLCommandEncoder
-- (instancetype)initWithRedwoodCommandBuffer:(RedwoodMetalCommandBuffer *)commandBuffer
+@interface HKMetalRenderEncoder : _MTLCommandEncoder
+- (instancetype)initWithHKCommandBuffer:(HKMetalCommandBuffer *)commandBuffer
 				  descriptor:(id)descriptor;
 /* Every form of every draw method records through this one, indexed or not: the thirteen
  * lines that copy the encoder's state into the work item are the same either way, and two
@@ -985,8 +985,8 @@ struct gem_close { uint32_t handle, pad; };
       baseInstance:(NSUInteger)baseInstance;
 @end
 
-@interface RedwoodMetalRenderPipeline : _MTLRenderPipelineState {
-	RedwoodMetalDevice *_owner;
+@interface HKMetalRenderPipeline : _MTLRenderPipelineState {
+	HKMetalDevice *_owner;
 	struct rwa_render *_render;
 	struct rwa_render_info _info;
 }
@@ -1015,10 +1015,10 @@ struct gem_close { uint32_t handle, pad; };
 - (unsigned)vertexElementAttribute:(unsigned)index;
 @end
 
-@interface RedwoodMetalWork : NSObject {
+@interface HKMetalWork : NSObject {
 @public
-	RedwoodMetalComputePipeline *pipeline;
-	RedwoodMetalRenderPipeline *render;      /* set instead for a draw */
+	HKMetalComputePipeline *pipeline;
+	HKMetalRenderPipeline *render;      /* set instead for a draw */
 	id color[8];
 	unsigned colorCount;
 	float clearColor[4];
@@ -1061,8 +1061,8 @@ struct gem_close { uint32_t handle, pad; };
 }
 @end
 
-@interface RedwoodMetalTexture : _MTLResource {
-	RedwoodMetalDevice *_owner;
+@interface HKMetalTexture : _MTLResource {
+	HKMetalDevice *_owner;
 	struct rwa_texture *_texture;
 	struct rwa_texture_shape _shape;
 	int _responsibleProcess;   /* as on the buffer: accounting, not behaviour */
@@ -1072,23 +1072,23 @@ struct gem_close { uint32_t handle, pad; };
  * byte per texel. Metal's own -getBytes: has no aspect to name and the compiler library
  * refuses a depth texture through it by name, so a caller that wants to know what a depth
  * buffer holds asks for an aspect here instead. Either pointer may be NULL. */
-- (BOOL)redwoodReadDepth:(float *)depth
+- (BOOL)hkReadDepth:(float *)depth
 		 stencil:(uint8_t *)stencil
 	      fromRegion:(MTLRegion)region;
 @end
 
-@interface RedwoodMetalSampler : _MTLSamplerState {
+@interface HKMetalSampler : _MTLSamplerState {
 	struct rwa_sampler *_sampler;
 }
 @property (readonly) struct rwa_sampler *mesaSampler;
 @end
 
-@interface RedwoodMetalDepthStencilState : _MTLDepthStencilState {
+@interface HKMetalDepthStencilState : _MTLDepthStencilState {
 	struct rwa_depth_stencil *_state;
 	BOOL _readsDepth, _writesDepth, _readsStencil, _writesStencil;
 }
 @property (readonly) struct rwa_depth_stencil *mesaDepthStencil;
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device
 				state:(struct rwa_depth_stencil *)state
 			   descriptor:(MTLDepthStencilDescriptor *)descriptor;
 @end
@@ -1099,20 +1099,20 @@ struct gem_close { uint32_t handle, pad; };
  * to a binding and Metal's 8-byte handles are an Apple GPU's descriptors (air_metal.h).
  * The implementation below carries the whole of why.
  */
-@interface RedwoodMetalArgumentEncoder : NSObject
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device
+@interface HKMetalArgumentEncoder : NSObject
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device
 			       layout:(const struct rwa_argbuf_layout *)layout
 			   fromModule:(BOOL)fromModule;
 /* Not part of MTLArgumentEncoder: the mapping between Metal's [[id(n)]] and the index the
  * GPU is programmed with, so a test can read it back instead of trusting it. */
-- (NSUInteger)redwoodMemberCount;
-- (NSUInteger)redwoodMetalIndex;
-- (BOOL)redwoodMember:(NSUInteger)i id:(NSUInteger *)mid kind:(NSUInteger *)kind
+- (NSUInteger)hkMemberCount;
+- (NSUInteger)hkMetalIndex;
+- (BOOL)hkMember:(NSUInteger)i id:(NSUInteger *)mid kind:(NSUInteger *)kind
 		index:(NSUInteger *)index;
 @end
 
-@interface RedwoodMetalBuffer : _MTLResource {
-	RedwoodMetalDevice *_owner;
+@interface HKMetalBuffer : _MTLResource {
+	HKMetalDevice *_owner;
 	io_connect_t _gpu;        /* not owned: the device holds it */
 	uint32_t _handle;         /* set on the kernel path only */
 	uint64_t _iova;
@@ -1122,12 +1122,12 @@ struct gem_close { uint32_t handle, pad; };
 	int _responsibleProcess;  /* what <MTLResourceSPI> calls the owner, for accounting */
 }
 @property (readonly) struct rwa_buffer *mesaBuffer;
-- (instancetype)initWithDevice:(RedwoodMetalDevice *)device
+- (instancetype)initWithDevice:(HKMetalDevice *)device
 			   gpu:(io_connect_t)gpu
 			length:(NSUInteger)length;
 @end
 
-@implementation RedwoodMetalDevice
+@implementation HKMetalDevice
 
 + (void)load
 {
@@ -1150,15 +1150,15 @@ struct gem_close { uint32_t handle, pad; };
 	/* The gpu this driver would actually drive. Not fatal if it is absent: the port
 	 * starts the Adreno only with the boot argument gpu=1, and a device object that
 	 * cannot allocate is still the thing under test until the resource layer exists. */
-	io_service_t gpu = IOServiceGetMatchingService(0, IOServiceMatching("RedwoodGPU"));
+	io_service_t gpu = IOServiceGetMatchingService(0, IOServiceMatching("HKGPU"));
 
 	_gpu = IO_OBJECT_NULL;
 	if (gpu == IO_OBJECT_NULL) {
-		rw_print("no RedwoodGPU service (the gpu was not started)\n");
+		rw_print("no HKGPU service (the gpu was not started)\n");
 	} else {
 		kern_return_t kr = IOServiceOpen(gpu, mach_task_self(), 0, &_gpu);
 
-		rw_print("RedwoodGPU client %s (%#x)\n",
+		rw_print("HKGPU client %s (%#x)\n",
 		         kr == KERN_SUCCESS ? "opened" : "refused", kr);
 		IOObjectRelease(gpu);
 	}
@@ -1293,7 +1293,7 @@ struct gem_close { uint32_t handle, pad; };
 	}
 	if (_mesa == NULL) {
 		return [self fail:error with:@"there is no GPU compiler here: either the Adreno "
-					     @"was not started (gpu=1) or libredwoodair.dylib is "
+					     @"was not started (gpu=1) or libhackiosair.dylib is "
 					     @"missing or older than this driver"];
 	}
 	if (mesa.render_create == NULL) {
@@ -1509,7 +1509,7 @@ struct gem_close { uint32_t handle, pad; };
 	if (shape.color_count > 0) {
 		rw_blend_result(info.blend_enabled_mask, info.color_write_masks);
 	}
-	return [[RedwoodMetalRenderPipeline alloc] initWithRedwoodDevice:self
+	return [[HKMetalRenderPipeline alloc] initWithHKDevice:self
 								 render:render
 								   info:&info
 							     descriptor:descriptor];
@@ -1626,7 +1626,7 @@ struct gem_close { uint32_t handle, pad; };
 {
 	(void)descriptor;
 	(void)backed;
-	RW_ONCE("redwoodmetal: a texture layout was asked for and this driver has none to give; "
+	RW_ONCE("hkmetal: a texture layout was asked for and this driver has none to give; "
 		"CoreAnimation sizes a surface with it before any texture exists, and nil is the "
 		"answer until a boot says nil is not tolerated\n");
 	return nil;
@@ -1667,7 +1667,7 @@ struct gem_close { uint32_t handle, pad; };
  * answered at all.
  *
  * nil and not a texture, because the contract has no call for it. rwa_texture_from_surface takes
- * an IOSurface, which the kernel hands over as a buffer (kRedwoodSurface); a bare pointer into
+ * an IOSurface, which the kernel hands over as a buffer (kHKSurface); a bare pointer into
  * the caller's address space is a different import, and a texture made by copying instead would
  * be wrong in a way nothing would report: the caller writes to its own pages and expects the
  * texture to change.
@@ -1680,7 +1680,7 @@ struct gem_close { uint32_t handle, pad; };
 	(void)length;
 	(void)descriptor;
 	(void)deallocator;
-	RW_ONCE("redwoodmetal: a texture over the caller's own memory was asked for, and the "
+	RW_ONCE("hkmetal: a texture over the caller's own memory was asked for, and the "
 		"contract has no import for a bare pointer -- only for an IOSurface. Copying "
 		"instead would be worse than nil: the caller writes to its pages and expects the "
 		"texture to follow\n");
@@ -1712,7 +1712,7 @@ struct gem_close { uint32_t handle, pad; };
 		rw_print("%s\n", why);
 		return nil;
 	}
-	return [[RedwoodMetalTexture alloc] initWithRedwoodDevice:self
+	return [[HKMetalTexture alloc] initWithHKDevice:self
 							 texture:texture
 							   shape:&shape];
 }
@@ -1748,7 +1748,7 @@ struct gem_close { uint32_t handle, pad; };
 		rw_print("%s\n", why);
 		return nil;
 	}
-	return [[RedwoodMetalSampler alloc] initWithRedwoodDevice:self
+	return [[HKMetalSampler alloc] initWithHKDevice:self
 							 sampler:sampler
 						      descriptor:descriptor];
 }
@@ -1821,7 +1821,7 @@ struct gem_close { uint32_t handle, pad; };
 		rw_print("%s\n", why);
 		return nil;
 	}
-	return [[RedwoodMetalDepthStencilState alloc] initWithRedwoodDevice:self
+	return [[HKMetalDepthStencilState alloc] initWithHKDevice:self
 								     state:made
 								descriptor:descriptor];
 }
@@ -1915,7 +1915,7 @@ struct gem_close { uint32_t handle, pad; };
 		 * is named by (set, id) exactly as the application named it. */
 		layout.members[i].index = ~0u;
 	}
-	return [[RedwoodMetalArgumentEncoder alloc] initWithRedwoodDevice:self layout:&layout
+	return [[HKMetalArgumentEncoder alloc] initWithHKDevice:self layout:&layout
 							      fromModule:NO];
 }
 
@@ -1939,7 +1939,7 @@ struct gem_close { uint32_t handle, pad; };
  * The layout is read out of the function's bitcode -- the one thing this port has that
  * Metal's reflection has not -- so the numbers are the module's own.
  */
-- (id)redwoodArgumentEncoderForFunction:(id)function bufferIndex:(NSUInteger)index
+- (id)hkArgumentEncoderForFunction:(id)function bufferIndex:(NSUInteger)index
 {
 	static SEL bitcode;
 
@@ -1979,7 +1979,7 @@ struct gem_close { uint32_t handle, pad; };
 		if (sets[i].metal_index != (unsigned)index) {
 			continue;
 		}
-		return [[RedwoodMetalArgumentEncoder alloc] initWithRedwoodDevice:self
+		return [[HKMetalArgumentEncoder alloc] initWithHKDevice:self
 									  layout:&sets[i]
 								      fromModule:YES];
 	}
@@ -2007,7 +2007,7 @@ struct gem_close { uint32_t handle, pad; };
 	id use = descriptor != nil ? [[descriptor retain] autorelease] :
 	    [[[MTLCommandQueueDescriptor alloc] init] autorelease];
 
-	return [[RedwoodMetalCommandQueue alloc] initWithRedwoodDevice:self descriptor:use];
+	return [[HKMetalCommandQueue alloc] initWithHKDevice:self descriptor:use];
 }
 
 /*
@@ -2106,7 +2106,7 @@ struct gem_close { uint32_t handle, pad; };
 	}
 	if (_mesa == NULL) {
 		return [self fail:error with:@"there is no GPU compiler here: either the Adreno "
-					     @"was not started (gpu=1) or libredwoodair.dylib "
+					     @"was not started (gpu=1) or libhackiosair.dylib "
 					     @"is missing"];
 	}
 	if (![function respondsToSelector:bitcode]) {
@@ -2129,7 +2129,7 @@ struct gem_close { uint32_t handle, pad; };
 		 * which construct it refused, and an application can act on that. */
 		return [self fail:error with:[NSString stringWithUTF8String:why]];
 	}
-	return [[RedwoodMetalComputePipeline alloc] initWithRedwoodDevice:self
+	return [[HKMetalComputePipeline alloc] initWithHKDevice:self
 								 compute:compute
 								    info:&info
 							      descriptor:descriptor];
@@ -2138,7 +2138,7 @@ struct gem_close { uint32_t handle, pad; };
 - (id)fail:(NSError **)error with:(NSString *)reason
 {
 	if (error != NULL) {
-		*error = [NSError errorWithDomain:@"RedwoodMetal" code:1
+		*error = [NSError errorWithDomain:@"HKMetal" code:1
 					 userInfo:@{ NSLocalizedDescriptionKey: reason }];
 	}
 	return nil;
@@ -2285,7 +2285,7 @@ struct gem_close { uint32_t handle, pad; };
  * The one method -[CAMetalLayer nextDrawable] asks of a device (docs/metal.md 10.46):
  * allocate_drawable_texture builds an ordinary MTLTextureDescriptor, sets its private
  * rotation/isDrawable/framebufferOnly/usage and sends this. The surface, its geometry and
- * every refusal live in src/redwooddrawable.m, because they answer CoreAnimation rather than
+ * every refusal live in src/hkdrawable.m, because they answer CoreAnimation rather than
  * Metal; what is left here is the object, which has to be of this class.
  *
  * The refusal is printed rather than returned silently, and that is not a style choice:
@@ -2321,7 +2321,7 @@ struct gem_close { uint32_t handle, pad; };
 		RW_AGAIN("no drawable: %s\n", why);
 		return nil;
 	}
-	return [[RedwoodMetalTexture alloc] initWithRedwoodDevice:self
+	return [[HKMetalTexture alloc] initWithHKDevice:self
 							 texture:texture
 							   shape:&shape];
 }
@@ -2501,12 +2501,12 @@ struct gem_close { uint32_t handle, pad; };
 - (id)newBufferWithLength:(NSUInteger)length options:(NSUInteger)options
 {
 	(void)options;   /* every allocation here is CPU-visible; the buffer says so honestly */
-	return [[RedwoodMetalBuffer alloc] initWithDevice:self gpu:_gpu length:length];
+	return [[HKMetalBuffer alloc] initWithDevice:self gpu:_gpu length:length];
 }
 
 - (id)newBufferWithBytes:(const void *)bytes length:(NSUInteger)length options:(NSUInteger)options
 {
-	RedwoodMetalBuffer *buffer = [self newBufferWithLength:length options:options];
+	HKMetalBuffer *buffer = [self newBufferWithLength:length options:options];
 
 	if (buffer != nil && bytes != NULL && [buffer contents] != NULL) {
 		memcpy([buffer contents], bytes, length);
@@ -2523,7 +2523,7 @@ struct gem_close { uint32_t handle, pad; };
 
 @end
 
-@implementation RedwoodMetalBuffer
+@implementation HKMetalBuffer
 
 + (void)load
 {
@@ -2534,7 +2534,7 @@ struct gem_close { uint32_t handle, pad; };
 	}
 }
 
-- (instancetype)initWithDevice:(RedwoodMetalDevice *)device
+- (instancetype)initWithDevice:(HKMetalDevice *)device
 			   gpu:(io_connect_t)gpu
 			length:(NSUInteger)length
 {
@@ -2713,7 +2713,7 @@ struct gem_close { uint32_t handle, pad; };
 		   bytesPerRow:(NSUInteger)bytesPerRow
 {
 	(void)descriptor; (void)offset; (void)bytesPerRow;
-	RW_ONCE("redwoodmetal: a texture over a buffer was asked for; the contract lays a texture "
+	RW_ONCE("hkmetal: a texture over a buffer was asked for; the contract lays a texture "
 		"over an IOSurface and over memory of its own, but not over a buffer this driver "
 		"already holds\n");
 	return nil;
@@ -2731,7 +2731,7 @@ struct gem_close { uint32_t handle, pad; };
 
 @end
 
-@implementation RedwoodMetalTexture
+@implementation HKMetalTexture
 
 + (void)load
 {
@@ -2755,7 +2755,7 @@ struct gem_close { uint32_t handle, pad; };
 	}
 }
 
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device
 			      texture:(struct rwa_texture *)texture
 				shape:(const struct rwa_texture_shape *)shape
 {
@@ -2883,7 +2883,7 @@ struct gem_close { uint32_t handle, pad; };
 	   mipmapLevel:level slice:0];
 }
 
-- (BOOL)redwoodReadDepth:(float *)depth
+- (BOOL)hkReadDepth:(float *)depth
 		 stencil:(uint8_t *)stencil
 	      fromRegion:(MTLRegion)region
 {
@@ -3027,9 +3027,9 @@ struct gem_close { uint32_t handle, pad; };
 
 @end
 
-@implementation RedwoodMetalSampler
+@implementation HKMetalSampler
 
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device
 			      sampler:(struct rwa_sampler *)sampler
 			   descriptor:(id)descriptor
 {
@@ -3057,9 +3057,9 @@ struct gem_close { uint32_t handle, pad; };
 
 @end
 
-@implementation RedwoodMetalDepthStencilState
+@implementation HKMetalDepthStencilState
 
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device
 				state:(struct rwa_depth_stencil *)state
 			   descriptor:(MTLDepthStencilDescriptor *)descriptor
 {
@@ -3127,9 +3127,9 @@ struct gem_close { uint32_t handle, pad; };
 
 @end
 
-@implementation RedwoodMetalComputePipeline
+@implementation HKMetalComputePipeline
 
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device
 			     compute:(struct rwa_compute *)compute
 				info:(const struct rwa_compute_info *)info
 			  descriptor:(id)descriptor
@@ -3178,9 +3178,9 @@ struct gem_close { uint32_t handle, pad; };
 
 @end
 
-@implementation RedwoodMetalRenderPipeline
+@implementation HKMetalRenderPipeline
 
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device
 			       render:(struct rwa_render *)render
 				 info:(const struct rwa_render_info *)info
 			   descriptor:(id)descriptor
@@ -3260,7 +3260,7 @@ struct gem_close { uint32_t handle, pad; };
 
 @end
 
-@implementation RedwoodMetalWork
+@implementation HKMetalWork
 @end
 
 /*
@@ -3305,7 +3305,7 @@ struct gem_close { uint32_t handle, pad; };
  * answer is to find out, not to run with a queue that silently blocks at 64.
  */
 static dispatch_semaphore_t
-redwood_queue_semaphore(id queue)
+hk_queue_semaphore(id queue)
 {
 	static Ivar ivar;
 	static BOOL looked;
@@ -3332,7 +3332,7 @@ redwood_queue_semaphore(id queue)
  * descriptor that carried one reading back as nil. A Metal without the ivar is said out
  * loud once and falls back to this driver's own field. */
 static Ivar
-redwood_completion_ivar(void)
+hk_completion_ivar(void)
 {
 	static Ivar ivar;
 	static BOOL looked;
@@ -3354,7 +3354,7 @@ redwood_completion_ivar(void)
 /* Apple's own "this buffer still owes a signal" flag, cleared when we pay, so that its
  * bookkeeping and ours cannot disagree about a debt that has been settled. */
 static void
-redwood_clear_semaphore_debt(id commandBuffer)
+hk_clear_semaphore_debt(id commandBuffer)
 {
 	static Ivar ivar;
 	static BOOL looked;
@@ -3371,8 +3371,8 @@ redwood_clear_semaphore_debt(id commandBuffer)
 	}
 }
 
-@implementation RedwoodMetalCommandQueue {
-	RedwoodMetalDevice *_owner;
+@implementation HKMetalCommandQueue {
+	HKMetalDevice *_owner;
 	NSUInteger _outstanding;        /* buffers of this queue that still hold a slot */
 	NSUInteger _made, _returned;
 	/* What <MTLCommandQueueSPI> keeps about a queue and this driver cannot act on: the
@@ -3382,7 +3382,7 @@ redwood_clear_semaphore_debt(id commandBuffer)
 	dispatch_queue_t _completionQueue;   /* only used when Apple's own ivar is missing */
 }
 
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device descriptor:(id)descriptor
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device descriptor:(id)descriptor
 {
 	/* The initialiser IOGPUMetalCommandQueue itself sends to super (0x1ec16dabc). The
 	 * descriptor is not optional: the base validates it at its own line 137 and the first
@@ -3399,7 +3399,7 @@ redwood_clear_semaphore_debt(id commandBuffer)
 	         "(maxCommandBufferCount), and each one waits on the queue's semaphore in "
 	         "-[_MTLCommandBuffer initWithQueue:...]; this driver gives the slot back at "
 	         "-commit%s\n", (unsigned long)[self maxCommandBufferCount],
-	         redwood_queue_semaphore(self) != nil ? "" :
+	         hk_queue_semaphore(self) != nil ? "" :
 	         ", EXCEPT that the semaphore was not found and it cannot");
 	return self;
 }
@@ -3408,16 +3408,16 @@ redwood_clear_semaphore_debt(id commandBuffer)
 
 /* What the queue itself thinks, for a test that wants the number rather than the
  * inference: how many command buffers of this queue still hold one of those slots. */
-- (NSUInteger)redwoodOutstandingCommandBuffers { return _outstanding; }
-- (NSUInteger)redwoodCommandBuffersMade        { return _made; }
+- (NSUInteger)hkOutstandingCommandBuffers { return _outstanding; }
+- (NSUInteger)hkCommandBuffersMade        { return _made; }
 
-- (void)redwoodTookSlot
+- (void)hkTookSlot
 {
 	_outstanding++;
 	_made++;
 }
 
-- (void)redwoodReturnedSlot
+- (void)hkReturnedSlot
 {
 	if (_outstanding > 0) {
 		_outstanding--;
@@ -3427,7 +3427,7 @@ redwood_clear_semaphore_debt(id commandBuffer)
 
 - (id)commandBuffer
 {
-	return [[[RedwoodMetalCommandBuffer alloc] initWithRedwoodQueue:self] autorelease];
+	return [[[HKMetalCommandBuffer alloc] initWithHKQueue:self] autorelease];
 }
 
 - (id)commandBufferWithUnretainedReferences
@@ -3522,7 +3522,7 @@ redwood_clear_semaphore_debt(id commandBuffer)
  * exactly why backboardd sets one: a completion handler that runs on a daemon's render
  * thread is a completion handler that can stall a frame.
  *
- * So this one is SERVED, not declined: the queue is kept, and -[RedwoodMetalCommandBuffer
+ * So this one is SERVED, not declined: the queue is kept, and -[HKMetalCommandBuffer
  * commit] delivers the scheduled and completed handlers on it (see the note there -- before
  * this they ran inline, at the moment they were added, which is before the work they are
  * about). It is kept in Apple's ivar rather than in one of ours so that a queue built from
@@ -3532,7 +3532,7 @@ redwood_clear_semaphore_debt(id commandBuffer)
  */
 - (void)setCompletionQueue:(dispatch_queue_t)queue
 {
-	Ivar ivar = redwood_completion_ivar();
+	Ivar ivar = hk_completion_ivar();
 	dispatch_queue_t held = ivar != NULL ?
 	    (dispatch_queue_t)object_getIvar(self, ivar) : _completionQueue;
 
@@ -3551,9 +3551,9 @@ redwood_clear_semaphore_debt(id commandBuffer)
 /* What this driver reads when it has something to deliver. Not an override of -completionQueue
  * (the base class's getter reads the same ivar): this is here for the Metal where that ivar
  * is not, so that one missing ivar does not quietly send every handler to the wrong thread. */
-- (dispatch_queue_t)redwoodCompletionQueue
+- (dispatch_queue_t)hkCompletionQueue
 {
-	Ivar ivar = redwood_completion_ivar();
+	Ivar ivar = hk_completion_ivar();
 
 	return ivar != NULL ? (dispatch_queue_t)object_getIvar(self, ivar) : _completionQueue;
 }
@@ -3584,7 +3584,7 @@ redwood_clear_semaphore_debt(id commandBuffer)
  *
  * Every boot log under logs/ was written by the old numbering and none of them is going to be
  * regenerated, so those numbers have to be DATED rather than reinterpreted. That is what the
- * banner in -initWithRedwoodQueue: below is for: it names the numbering of the log that carries
+ * banner in -initWithHKQueue: below is for: it names the numbering of the log that carries
  * it, and it is printed out of these constants, so the line cannot drift from what -status
  * answers. A log without that line is older than this change, and in it "status 6" is this
  * completion, "status 4" is a buffer that was only submitted, and 2 and 3 do not occur at all.
@@ -3608,8 +3608,8 @@ enum {
 	RW_CB_ERROR        = 5,
 };
 
-@implementation RedwoodMetalCommandBuffer {
-	RedwoodMetalCommandQueue *_queue;
+@implementation HKMetalCommandBuffer {
+	HKMetalCommandQueue *_queue;
 	NSMutableArray *_work;
 	NSError *_error;
 	NSUInteger _status;
@@ -3622,7 +3622,7 @@ enum {
  * The window server sends this to every command buffer it makes, and until it was answered the
  * boot of 22 October 01:51 ended it 78 times with
  *
- *   NSInvalidArgumentException: -[RedwoodMetalCommandBuffer setProtectionOptions:]:
+ *   NSInvalidArgumentException: -[HKMetalCommandBuffer setProtectionOptions:]:
  *   unrecognized selector sent to instance
  *
  * -- an uncaught Objective-C exception out of CA::WindowServer::IOMFBServer::thread_body, which
@@ -3657,11 +3657,11 @@ enum {
 	return _protectionOptions;
 }
 
-- (instancetype)initWithRedwoodQueue:(RedwoodMetalCommandQueue *)queue
+- (instancetype)initWithHKQueue:(HKMetalCommandQueue *)queue
 {
 	/* what IOGPUMetalCommandBuffer sends to super, retained references and no debug mode.
 	 * THIS CALL BLOCKS when the queue's semaphore is empty -- see the long note above
-	 * RedwoodMetalCommandQueue -- so by the time it returns, a slot is held and owed. */
+	 * HKMetalCommandQueue -- so by the time it returns, a slot is held and owed. */
 	self = [super initWithQueue:queue retainedReferences:YES synchronousDebugMode:NO];
 	if (self == nil) {
 		return nil;
@@ -3679,7 +3679,7 @@ enum {
 		(unsigned)RW_CB_COMPLETED, (unsigned)RW_CB_ERROR);
 	_status = RW_CB_ENQUEUED;   /* nothing is pending yet */
 	_owesSlot = YES;
-	[queue redwoodTookSlot];
+	[queue hkTookSlot];
 	return self;
 }
 
@@ -3689,7 +3689,7 @@ enum {
  * which is the case Apple's _needsCommandBufferSemaphoreSignal exists for and the one that
  * would otherwise lose a slot for the life of the process.
  */
-- (void)redwoodReturnSlot
+- (void)hkReturnSlot
 {
 	dispatch_semaphore_t semaphore;
 
@@ -3697,9 +3697,9 @@ enum {
 		return;
 	}
 	_owesSlot = NO;
-	redwood_clear_semaphore_debt(self);
-	[_queue redwoodReturnedSlot];
-	semaphore = redwood_queue_semaphore(_queue);
+	hk_clear_semaphore_debt(self);
+	[_queue hkReturnedSlot];
+	semaphore = hk_queue_semaphore(_queue);
 	if (semaphore != nil) {
 		dispatch_semaphore_signal(semaphore);
 	}
@@ -3707,7 +3707,7 @@ enum {
 
 - (void)dealloc
 {
-	[self redwoodReturnSlot];
+	[self hkReturnSlot];
 	[_work release];
 	[_error release];
 	[_scheduled release];
@@ -3724,7 +3724,7 @@ enum {
 
 - (id)computeCommandEncoder
 {
-	return [[[RedwoodMetalComputeEncoder alloc] initWithRedwoodCommandBuffer:self]
+	return [[[HKMetalComputeEncoder alloc] initWithHKCommandBuffer:self]
 		   autorelease];
 }
 
@@ -3734,7 +3734,7 @@ enum {
 		rw_print("a render pass needs a descriptor\n");
 		return nil;
 	}
-	return [[[RedwoodMetalRenderEncoder alloc] initWithRedwoodCommandBuffer:self
+	return [[[HKMetalRenderEncoder alloc] initWithHKCommandBuffer:self
 								    descriptor:descriptor]
 		   autorelease];
 }
@@ -3760,7 +3760,7 @@ enum {
 	return [self computeCommandEncoder];
 }
 
-- (void)recordWork:(RedwoodMetalWork *)work
+- (void)recordWork:(HKMetalWork *)work
 {
 	[_work addObject:work];
 }
@@ -3773,7 +3773,7 @@ enum {
 	char why[512] = { 0 };
 
 	_status = RW_CB_COMMITTED;
-	for (RedwoodMetalWork *work in _work) {
+	for (HKMetalWork *work in _work) {
 		if (work->render != nil) {
 			if (![self runDraw:work why:why size:sizeof(why)]) {
 				goto done;
@@ -3824,7 +3824,7 @@ enum {
 					    work->size, why, sizeof(why));
 		if (rc != 0) {
 			rw_print("the dispatch failed: %s\n", why);
-			_error = [[NSError errorWithDomain:@"RedwoodMetal" code:2
+			_error = [[NSError errorWithDomain:@"HKMetal" code:2
 						  userInfo:@{ NSLocalizedDescriptionKey:
 							      [NSString stringWithUTF8String:why] }]
 				     retain];
@@ -3837,16 +3837,16 @@ done:
 	/* The queue's slot goes back here and on every way out of this method, a failed draw
 	 * included: a buffer that errored is as finished as one that drew, and a slot kept
 	 * because of an error would turn one bad draw into a queue that blocks for ever. */
-	[self redwoodReturnSlot];
+	[self hkReturnSlot];
 	/* and only then the handlers, so that a handler which makes the next command buffer
 	 * is not waiting for a slot this one still holds */
-	[self redwoodDeliverHandlers];
+	[self hkDeliverHandlers];
 }
 
 /* A draw, built out of what the encoder recorded. Separate from the dispatch loop because the
  * two have different bindings -- a draw has them per stage -- and folding them together would
  * mean a struct whose fields mean different things depending on a flag. */
-- (BOOL)runDraw:(RedwoodMetalWork *)work why:(char *)why size:(size_t)size
+- (BOOL)runDraw:(HKMetalWork *)work why:(char *)why size:(size_t)size
 {
 	struct rwa_texture *color[8] = { NULL };
 	struct rwa_buffer *vertex_buffers[RW_MAX_BUFFERS] = { NULL };
@@ -4005,7 +4005,7 @@ done:
 
 - (void)failWith:(const char *)reason
 {
-	_error = [[NSError errorWithDomain:@"RedwoodMetal" code:4
+	_error = [[NSError errorWithDomain:@"HKMetal" code:4
 				  userInfo:@{ NSLocalizedDescriptionKey:
 					      [NSString stringWithUTF8String:reason] }] retain];
 	_status = RW_CB_ERROR;
@@ -4022,7 +4022,7 @@ done:
 	}
 	if (mesa.finish([[_queue device] mesaDevice], why, sizeof(why)) != 0) {
 		rw_print("THE GPU DID NOT FINISH: %s\n", why);
-		_error = [[NSError errorWithDomain:@"RedwoodMetal" code:3
+		_error = [[NSError errorWithDomain:@"HKMetal" code:3
 					  userInfo:@{ NSLocalizedDescriptionKey:
 						      [NSString stringWithUTF8String:why] }] retain];
 		_status = RW_CB_ERROR;
@@ -4051,9 +4051,9 @@ done:
  * once rather than dropped: Metal calls that undefined, and losing it would be the kind of
  * silence this driver is trying to stop having.
  */
-- (void)redwoodDeliver:(void (^)(id))handler
+- (void)hkDeliver:(void (^)(id))handler
 {
-	dispatch_queue_t queue = [_queue redwoodCompletionQueue];
+	dispatch_queue_t queue = [_queue hkCompletionQueue];
 
 	if (queue != nil) {
 		/* dispatch_async copies the block, which retains both this buffer and the
@@ -4072,7 +4072,7 @@ done:
 	/* scheduled or further, an error included (3, 4, 5): the work this handler is about has
 	 * already run, so it is delivered rather than kept */
 	if (_status >= RW_CB_SCHEDULED) {
-		[self redwoodDeliver:handler];
+		[self hkDeliver:handler];
 		return;
 	}
 	if (_scheduled == nil) {
@@ -4087,7 +4087,7 @@ done:
 		return;
 	}
 	if (_status >= RW_CB_SCHEDULED) {
-		[self redwoodDeliver:handler];
+		[self hkDeliver:handler];
 		return;
 	}
 	if (_completed == nil) {
@@ -4098,7 +4098,7 @@ done:
 
 /* Called from the one place the work is done. The order is Metal's: scheduled first, then
  * the fence, then completed. */
-- (void)redwoodDeliverHandlers
+- (void)hkDeliverHandlers
 {
 	NSArray *scheduled = _scheduled;
 	NSArray *completed = _completed;
@@ -4106,7 +4106,7 @@ done:
 	_scheduled = nil;
 	_completed = nil;
 	for (id handler in scheduled) {
-		[self redwoodDeliver:(void (^)(id))handler];
+		[self hkDeliver:(void (^)(id))handler];
 	}
 	if ([completed count] > 0 && _status != RW_CB_ERROR) {
 		/* A completed handler is a promise about the GPU, so it is made true before it
@@ -4115,7 +4115,7 @@ done:
 		[self waitUntilCompleted];
 	}
 	for (id handler in completed) {
-		[self redwoodDeliver:(void (^)(id))handler];
+		[self hkDeliver:(void (^)(id))handler];
 	}
 	[scheduled release];
 	[completed release];
@@ -4136,8 +4136,8 @@ done:
 	[self commit];
 }
 
-- (void)addPurgedResource:(id)resource { (void)resource; [self redwoodPurgedNote]; }
-- (void)addPurgedHeap:(id)heap         { (void)heap; [self redwoodPurgedNote]; }
+- (void)addPurgedResource:(id)resource { (void)resource; [self hkPurgedNote]; }
+- (void)addPurgedHeap:(id)heap         { (void)heap; [self hkPurgedNote]; }
 
 /* Metal records on a command buffer every resource of its that was purged while the buffer
  * referenced it, so that -commit can fail the buffer instead of reading pages that are
@@ -4145,7 +4145,7 @@ done:
  * MTLPurgeableStateNonVolatile for every resource, which is what they are -- so a report
  * here means Metal and this driver disagree about a resource, and that is worth a line
  * rather than a silent buffer that fails later for no stated reason. */
-- (void)redwoodPurgedNote
+- (void)hkPurgedNote
 {
 	RW_ONCE("Metal reported a purged resource on a command buffer, but "
 		"nothing this driver allocates is volatile; the report is noted and the "
@@ -4155,9 +4155,9 @@ done:
 
 @end
 
-@implementation RedwoodMetalRenderEncoder {
-	RedwoodMetalCommandBuffer *_commandBuffer;   /* not retained: it owns the encoder */
-	RedwoodMetalRenderPipeline *_pipeline;
+@implementation HKMetalRenderEncoder {
+	HKMetalCommandBuffer *_commandBuffer;   /* not retained: it owns the encoder */
+	HKMetalRenderPipeline *_pipeline;
 	id _color[8];
 	unsigned _colorCount;
 	float _clearColor[4];
@@ -4181,7 +4181,7 @@ done:
 	BOOL _complained;
 }
 
-- (instancetype)initWithRedwoodCommandBuffer:(RedwoodMetalCommandBuffer *)commandBuffer
+- (instancetype)initWithHKCommandBuffer:(HKMetalCommandBuffer *)commandBuffer
 				  descriptor:(MTLRenderPassDescriptor *)descriptor
 {
 	self = [super initWithCommandBuffer:commandBuffer];
@@ -4411,7 +4411,7 @@ done:
  * nil, and the library draws with its own zeroed state, which is the same thing. */
 - (void)setDepthStencilState:(id)state
 {
-	if (state != nil && ![state isKindOfClass:[RedwoodMetalDepthStencilState class]]) {
+	if (state != nil && ![state isKindOfClass:[HKMetalDepthStencilState class]]) {
 		rw_print("this depth/stencil state is a %s and not one of ours, so "
 		         "it cannot be bound; this pass draws with no depth test\n",
 		         class_getName(object_getClass(state)));
@@ -4434,7 +4434,7 @@ done:
      instanceCount:(NSUInteger)instances
       baseInstance:(NSUInteger)baseInstance
 {
-	RedwoodMetalWork *work = [[RedwoodMetalWork alloc] init];
+	HKMetalWork *work = [[HKMetalWork alloc] init];
 
 	if (_pipeline == nil || (_colorCount == 0 && _depth == nil)) {
 		rw_print("this draw has %s and is dropped\n",
@@ -4961,7 +4961,7 @@ done:
  * Tessellation: the library has no tessellator, so a patch draw records nothing. Said out
  * loud because a draw that silently does nothing is the one failure this driver has already
  * paid for twice (docs/metal.md 10.21, 10.26). */
-- (void)redwoodNoTessellation
+- (void)hkNoTessellation
 {
 	RW_ONCE("tessellation is not implemented; this patch draw records "
 		"nothing\n");
@@ -4976,7 +4976,7 @@ patchIndexBufferOffset:(NSUInteger)offset
 {
 	(void)controlPoints; (void)start; (void)count; (void)indexBuffer; (void)offset;
 	(void)instances; (void)baseInstance;
-	[self redwoodNoTessellation];
+	[self hkNoTessellation];
 }
 - (void)drawPatches:(NSUInteger)controlPoints
    patchIndexBuffer:(id)indexBuffer
@@ -4986,7 +4986,7 @@ indirectBufferOffset:(NSUInteger)indirectOffset
 {
 	(void)controlPoints; (void)indexBuffer; (void)offset; (void)indirectBuffer;
 	(void)indirectOffset;
-	[self redwoodNoTessellation];
+	[self hkNoTessellation];
 }
 - (void)drawIndexedPatches:(NSUInteger)controlPoints
 		patchStart:(NSUInteger)start
@@ -5001,7 +5001,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 	(void)controlPoints; (void)start; (void)count; (void)indexBuffer; (void)offset;
 	(void)controlPointBuffer; (void)controlPointOffset; (void)instances;
 	(void)baseInstance;
-	[self redwoodNoTessellation];
+	[self hkNoTessellation];
 }
 - (void)drawIndexedPatches:(NSUInteger)controlPoints
 	  patchIndexBuffer:(id)indexBuffer
@@ -5013,25 +5013,25 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 {
 	(void)controlPoints; (void)indexBuffer; (void)offset; (void)controlPointBuffer;
 	(void)controlPointOffset; (void)indirectBuffer; (void)indirectOffset;
-	[self redwoodNoTessellation];
+	[self hkNoTessellation];
 }
 - (void)setTessellationFactorBuffer:(id)buffer
 			     offset:(NSUInteger)offset
 		     instanceStride:(NSUInteger)stride
 {
 	(void)buffer; (void)offset; (void)stride;
-	[self redwoodNoTessellation];
+	[self hkNoTessellation];
 }
 - (void)setTessellationFactorScale:(float)scale
 {
 	(void)scale;
-	[self redwoodNoTessellation];
+	[self hkNoTessellation];
 }
 
 /* Indirect command buffers: a buffer of commands the GPU reads for itself. The device
  * answers no to every indirect-command-buffer query, so this is a path a correct caller
  * does not take; the draws in it would be lost silently if it did. */
-- (void)redwoodNoIndirectCommands
+- (void)hkNoIndirectCommands
 {
 	RW_ONCE("indirect command buffers are not implemented; the commands in "
 		"this one are not executed\n");
@@ -5039,21 +5039,21 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 - (void)executeCommandsInBuffer:(id)buffer withRange:(NSRange)range
 {
 	(void)buffer; (void)range;
-	[self redwoodNoIndirectCommands];
+	[self hkNoIndirectCommands];
 }
 - (void)executeCommandsInBuffer:(id)buffer
 		 indirectBuffer:(id)indirectBuffer
 	   indirectBufferOffset:(NSUInteger)offset
 {
 	(void)buffer; (void)indirectBuffer; (void)offset;
-	[self redwoodNoIndirectCommands];
+	[self hkNoIndirectCommands];
 }
 
 /* Tile shading and imageblocks: a whole second pipeline kind (a tile function that runs over
  * the pass's imageblock), which this driver does not have. Every binding of it is refused
  * together, because one of them answering and the rest not would be worse than all of them
  * refusing: a tile dispatch would then run with half its bindings. */
-- (void)redwoodNoTileShading
+- (void)hkNoTileShading
 {
 	RW_ONCE("tile shading and imageblocks are not implemented; this tile "
 		"binding or dispatch is dropped\n");
@@ -5061,51 +5061,51 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 - (void)dispatchThreadsPerTile:(MTLSize)size
 {
 	(void)size;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setThreadgroupMemoryLength:(NSUInteger)length
 			    offset:(NSUInteger)offset
 			   atIndex:(NSUInteger)index
 {
 	(void)length; (void)offset; (void)index;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setTileBuffer:(id)buffer offset:(NSUInteger)offset atIndex:(NSUInteger)index
 {
 	(void)buffer; (void)offset; (void)index;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setTileBufferOffset:(NSUInteger)offset atIndex:(NSUInteger)index
 {
 	(void)offset; (void)index;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setTileBuffers:(const id *)buffers
 	       offsets:(const NSUInteger *)offsets
 	     withRange:(NSRange)range
 {
 	(void)buffers; (void)offsets; (void)range;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setTileBytes:(const void *)bytes length:(NSUInteger)length atIndex:(NSUInteger)index
 {
 	(void)bytes; (void)length; (void)index;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setTileTexture:(id)texture atIndex:(NSUInteger)index
 {
 	(void)texture; (void)index;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setTileTextures:(const id *)textures withRange:(NSRange)range
 {
 	(void)textures; (void)range;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setTileSamplerState:(id)sampler atIndex:(NSUInteger)index
 {
 	(void)sampler; (void)index;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setTileSamplerState:(id)sampler
 		lodMinClamp:(float)lodMin
@@ -5113,12 +5113,12 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 		    atIndex:(NSUInteger)index
 {
 	(void)sampler; (void)lodMin; (void)lodMax; (void)index;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setTileSamplerStates:(const id *)samplers withRange:(NSRange)range
 {
 	(void)samplers; (void)range;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 - (void)setTileSamplerStates:(const id *)samplers
 		lodMinClamps:(const float *)lodMin
@@ -5126,13 +5126,13 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 		   withRange:(NSRange)range
 {
 	(void)samplers; (void)lodMin; (void)lodMax; (void)range;
-	[self redwoodNoTileShading];
+	[self hkNoTileShading];
 }
 
 /* Function tables: pointers to shader functions, which an AIR module of ours never names
  * and the device answers no to (no ray tracing, no function pointers). A table bound here
  * would be a table a shader cannot call. */
-- (void)redwoodNoFunctionTables
+- (void)hkNoFunctionTables
 {
 	RW_ONCE("visible and intersection function tables are not implemented; "
 		"this binding is dropped\n");
@@ -5140,63 +5140,63 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 - (void)setVertexVisibleFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setVertexVisibleFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setFragmentVisibleFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setFragmentVisibleFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setTileVisibleFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setTileVisibleFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setVertexIntersectionFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setVertexIntersectionFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setFragmentIntersectionFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setFragmentIntersectionFunctionTables:(const id *)tables
 			      withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setTileIntersectionFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setTileIntersectionFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 
 /* A line width other than 1 would change the picture, so it is said; the rasterizer this
@@ -5237,7 +5237,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
  * them. Each entry is one of Apple's ABSTRACT methods -- a body that calls
  * doesNotRecognizeSelector: -- and that is the trap docs/metal.md 10.1 was written about:
  * `respondsToSelector:` answers YES, the method list lists it, and the abort when it is
- * called names the RECEIVER, so the log would read "-[RedwoodMetalRenderEncoder
+ * called names the RECEIVER, so the log would read "-[HKMetalRenderEncoder
  * setMeshTexture:atIndex:]: unrecognized selector" and send the next reader looking for a
  * method that is not the problem. An entry in a method table is not behaviour, and the only
  * way to tell these apart from working methods is to read the bodies out of the cache
@@ -5251,7 +5251,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
  * together for the same reason the tile bindings are: half of a stage's bindings arriving
  * would be worse than none.
  */
-- (void)redwoodNoMeshStages
+- (void)hkNoMeshStages
 {
 	RW_ONCE("mesh and object shader stages are not implemented (the device "
 		"answers no to them); this binding is dropped\n");
@@ -5259,41 +5259,41 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 - (void)setObjectBuffer:(id)buffer offset:(NSUInteger)offset atIndex:(NSUInteger)index
 {
 	(void)buffer; (void)offset; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectBufferOffset:(NSUInteger)offset atIndex:(NSUInteger)index
 {
 	(void)offset; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectBuffers:(const id *)buffers
 		 offsets:(const NSUInteger *)offsets
 	       withRange:(NSRange)range
 {
 	(void)buffers; (void)offsets; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectBytes:(const void *)bytes
 		length:(NSUInteger)length
 	       atIndex:(NSUInteger)index
 {
 	(void)bytes; (void)length; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectTexture:(id)texture atIndex:(NSUInteger)index
 {
 	(void)texture; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectTextures:(const id *)textures withRange:(NSRange)range
 {
 	(void)textures; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectSamplerState:(id)sampler atIndex:(NSUInteger)index
 {
 	(void)sampler; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectSamplerState:(id)sampler
 		  lodMinClamp:(float)lodMin
@@ -5301,12 +5301,12 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 		      atIndex:(NSUInteger)index
 {
 	(void)sampler; (void)lodMin; (void)lodMax; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectSamplerStates:(const id *)samplers withRange:(NSRange)range
 {
 	(void)samplers; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectSamplerStates:(const id *)samplers
 		  lodMinClamps:(const float *)lodMin
@@ -5314,64 +5314,64 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 		     withRange:(NSRange)range
 {
 	(void)samplers; (void)lodMin; (void)lodMax; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectThreadgroupMemoryLength:(NSUInteger)length atIndex:(NSUInteger)index
 {
 	(void)length; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectVisibleFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectVisibleFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectIntersectionFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshBuffer:(id)buffer offset:(NSUInteger)offset atIndex:(NSUInteger)index
 {
 	(void)buffer; (void)offset; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshBufferOffset:(NSUInteger)offset atIndex:(NSUInteger)index
 {
 	(void)offset; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshBuffers:(const id *)buffers
 	       offsets:(const NSUInteger *)offsets
 	     withRange:(NSRange)range
 {
 	(void)buffers; (void)offsets; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshBytes:(const void *)bytes length:(NSUInteger)length atIndex:(NSUInteger)index
 {
 	(void)bytes; (void)length; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshTexture:(id)texture atIndex:(NSUInteger)index
 {
 	(void)texture; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshTextures:(const id *)textures withRange:(NSRange)range
 {
 	(void)textures; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshSamplerState:(id)sampler atIndex:(NSUInteger)index
 {
 	(void)sampler; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshSamplerState:(id)sampler
 		lodMinClamp:(float)lodMin
@@ -5379,12 +5379,12 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 		    atIndex:(NSUInteger)index
 {
 	(void)sampler; (void)lodMin; (void)lodMax; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshSamplerStates:(const id *)samplers withRange:(NSRange)range
 {
 	(void)samplers; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshSamplerStates:(const id *)samplers
 		lodMinClamps:(const float *)lodMin
@@ -5392,22 +5392,22 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 		   withRange:(NSRange)range
 {
 	(void)samplers; (void)lodMin; (void)lodMax; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshVisibleFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshVisibleFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshIntersectionFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 /*
  * The last four of the mesh group are OPTIONAL members of <MTLRenderCommandEncoderSPI>, and
@@ -5420,22 +5420,22 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 - (void)setMeshIntersectionFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectIntersectionFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setMeshAccelerationStructure:(id)structure atBufferIndex:(NSUInteger)index
 {
 	(void)structure; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 - (void)setObjectAccelerationStructure:(id)structure atBufferIndex:(NSUInteger)index
 {
 	(void)structure; (void)index;
-	[self redwoodNoMeshStages];
+	[self hkNoMeshStages];
 }
 
 /* A split handler is called when Metal splits one render pass into several submissions,
@@ -5494,9 +5494,9 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 
 @end
 
-@implementation RedwoodMetalComputeEncoder {
-	RedwoodMetalCommandBuffer *_commandBuffer;   /* not retained: it owns the encoder's life */
-	RedwoodMetalComputePipeline *_pipeline;
+@implementation HKMetalComputeEncoder {
+	HKMetalCommandBuffer *_commandBuffer;   /* not retained: it owns the encoder's life */
+	HKMetalComputePipeline *_pipeline;
 	id _buffers[RW_MAX_BUFFERS];
 	NSUInteger _offsets[RW_MAX_BUFFERS];
 	id _textures[RW_MAX_BUFFERS];
@@ -5505,7 +5505,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 	BOOL _complained;
 }
 
-- (instancetype)initWithRedwoodCommandBuffer:(RedwoodMetalCommandBuffer *)commandBuffer
+- (instancetype)initWithHKCommandBuffer:(HKMetalCommandBuffer *)commandBuffer
 {
 	/* the initialiser IOGPUMetalCommandEncoder sends to super (0x1ec171d14 -> 0x181a1ee6c) */
 	self = [super initWithCommandBuffer:commandBuffer];
@@ -5613,7 +5613,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 
 - (void)dispatchThreadgroups:(MTLSize)groups threadsPerThreadgroup:(MTLSize)size
 {
-	RedwoodMetalWork *work = [[RedwoodMetalWork alloc] init];
+	HKMetalWork *work = [[HKMetalWork alloc] init];
 
 	if (_pipeline == nil || _complained) {
 		rw_print("this dispatch has %s and is dropped\n",
@@ -5774,7 +5774,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 }
 /* The stage-in region is for a kernel whose arguments arrive as [[stage_in]] -- the
  * non-uniform-grid feature. Nothing in the AIR this driver compiles declares one. */
-- (void)redwoodNoStageIn
+- (void)hkNoStageIn
 {
 	RW_ONCE("a kernel stage-in region is not implemented; the dispatch "
 		"covers the whole grid it was given\n");
@@ -5782,13 +5782,13 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 - (void)setStageInRegion:(MTLRegion)region
 {
 	(void)region;
-	[self redwoodNoStageIn];
+	[self hkNoStageIn];
 }
 - (void)setStageInRegionWithIndirectBuffer:(id)buffer
 		      indirectBufferOffset:(NSUInteger)offset
 {
 	(void)buffer; (void)offset;
-	[self redwoodNoStageIn];
+	[self hkNoStageIn];
 }
 - (void)setImageblockWidth:(NSUInteger)width height:(NSUInteger)height
 {
@@ -5802,7 +5802,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
  * library decides that for itself and there is nothing here to turn off. */
 - (void)setThreadgroupPackingDisabled:(BOOL)disabled { (void)disabled; }
 
-- (void)redwoodNoFunctionTables
+- (void)hkNoFunctionTables
 {
 	RW_ONCE("visible and intersection function tables are not implemented; "
 		"this binding is dropped\n");
@@ -5810,22 +5810,22 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 - (void)setVisibleFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setVisibleFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setIntersectionFunctionTable:(id)table atBufferIndex:(NSUInteger)index
 {
 	(void)table; (void)index;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 - (void)setIntersectionFunctionTables:(const id *)tables withBufferRange:(NSRange)range
 {
 	(void)tables; (void)range;
-	[self redwoodNoFunctionTables];
+	[self hkNoFunctionTables];
 }
 
 /* The same as the render encoder's, for the same measured reason: the superclass retains the
@@ -5869,12 +5869,12 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
  * which matters because the application allocates its buffer from them and then encodes
  * at multiples of them.
  */
-@implementation RedwoodMetalArgumentEncoder {
-	RedwoodMetalDevice *_owner;         /* not retained: the device owns everything here */
+@implementation HKMetalArgumentEncoder {
+	HKMetalDevice *_owner;         /* not retained: the device owns everything here */
 	NSString *_label;
 	struct rwa_argbuf_layout _layout;
 	BOOL _fromModule;                   /* the layout came from a shader, not descriptors */
-	RedwoodMetalBuffer *_destination;   /* what -setArgumentBuffer:offset: named */
+	HKMetalBuffer *_destination;   /* what -setArgumentBuffer:offset: named */
 	NSUInteger _offset;
 	BOOL _complained;
 }
@@ -5893,7 +5893,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 	}
 }
 
-- (instancetype)initWithRedwoodDevice:(RedwoodMetalDevice *)device
+- (instancetype)initWithHKDevice:(HKMetalDevice *)device
 			       layout:(const struct rwa_argbuf_layout *)layout
 			   fromModule:(BOOL)fromModule
 {
@@ -5931,9 +5931,9 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 /* Not part of MTLArgumentEncoder: what this encoder is for, so a test can read back the
  * mapping between Metal's [[id(n)]] and the index the GPU is programmed with instead of
  * trusting it. Metal's own pipeline reflection would report the same thing. */
-- (NSUInteger)redwoodMemberCount { return _layout.member_count; }
-- (NSUInteger)redwoodMetalIndex  { return _layout.metal_index; }
-- (BOOL)redwoodMember:(NSUInteger)i id:(NSUInteger *)mid kind:(NSUInteger *)kind
+- (NSUInteger)hkMemberCount { return _layout.member_count; }
+- (NSUInteger)hkMetalIndex  { return _layout.metal_index; }
+- (BOOL)hkMember:(NSUInteger)i id:(NSUInteger *)mid kind:(NSUInteger *)kind
 		index:(NSUInteger *)index
 {
 	if (i >= _layout.member_count) {
@@ -5959,7 +5959,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
  */
 - (void)setArgumentBuffer:(id)buffer offset:(NSUInteger)offset
 {
-	if (buffer != nil && ![buffer isKindOfClass:[RedwoodMetalBuffer class]]) {
+	if (buffer != nil && ![buffer isKindOfClass:[HKMetalBuffer class]]) {
 		rw_print("the argument buffer is a %s and not one of ours, so "
 		         "nothing can be encoded into it\n",
 		         class_getName(object_getClass(buffer)));
@@ -6008,7 +6008,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 /* Whether this encoder is in a state to record, said once per site: an id past the set's
  * own members is the mistake worth naming, because Metal would write a handle into the
  * buffer and the shader would read a descriptor that is not there. */
-- (BOOL)redwoodReady:(NSUInteger)index for:(const char *)what
+- (BOOL)hkReady:(NSUInteger)index for:(const char *)what
 {
 	if (_destination == nil) {
 		if (!_complained) {
@@ -6047,10 +6047,10 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 {
 	char why[512] = { 0 };
 
-	if (![self redwoodReady:index for:"a buffer"]) {
+	if (![self hkReady:index for:"a buffer"]) {
 		return;
 	}
-	if (buffer != nil && ![buffer isKindOfClass:[RedwoodMetalBuffer class]]) {
+	if (buffer != nil && ![buffer isKindOfClass:[HKMetalBuffer class]]) {
 		rw_print("the buffer encoded at id %lu is a %s and not one of "
 		         "ours\n", (unsigned long)index,
 		         class_getName(object_getClass(buffer)));
@@ -6076,10 +6076,10 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 {
 	char why[512] = { 0 };
 
-	if (![self redwoodReady:index for:"a texture"]) {
+	if (![self hkReady:index for:"a texture"]) {
 		return;
 	}
-	if (texture != nil && ![texture isKindOfClass:[RedwoodMetalTexture class]]) {
+	if (texture != nil && ![texture isKindOfClass:[HKMetalTexture class]]) {
 		rw_print("the texture encoded at id %lu is a %s and not one of "
 		         "ours\n", (unsigned long)index,
 		         class_getName(object_getClass(texture)));
@@ -6102,10 +6102,10 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 {
 	char why[512] = { 0 };
 
-	if (![self redwoodReady:index for:"a sampler"]) {
+	if (![self hkReady:index for:"a sampler"]) {
 		return;
 	}
-	if (sampler != nil && ![sampler isKindOfClass:[RedwoodMetalSampler class]]) {
+	if (sampler != nil && ![sampler isKindOfClass:[HKMetalSampler class]]) {
 		rw_print("the sampler encoded at id %lu is a %s and not one of "
 		         "ours\n", (unsigned long)index,
 		         class_getName(object_getClass(sampler)));
@@ -6139,7 +6139,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
  */
 - (void *)constantDataAtIndex:(NSUInteger)index
 {
-	if (![self redwoodReady:index for:"constant data"]) {
+	if (![self hkReady:index for:"constant data"]) {
 		return NULL;
 	}
 	void *bytes = [_destination contents];
@@ -6176,7 +6176,7 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
  * would be a record no draw could use -- and a silent no-op would leave the application
  * believing its set was encoded.
  */
-- (void)redwoodNoSuchMember:(const char *)what atIndex:(NSUInteger)index
+- (void)hkNoSuchMember:(const char *)what atIndex:(NSUInteger)index
 {
 	rw_print("%s was encoded at id %lu of an argument buffer, and this port "
 	         "binds a buffer, a texture or a sampler member and refuses the rest when the "
@@ -6186,57 +6186,57 @@ controlPointIndexBufferOffset:(NSUInteger)controlPointOffset
 - (void)setRenderPipelineState:(id)state atIndex:(NSUInteger)index
 {
 	(void)state;
-	[self redwoodNoSuchMember:"a render pipeline state" atIndex:index];
+	[self hkNoSuchMember:"a render pipeline state" atIndex:index];
 }
 - (void)setRenderPipelineStates:(const id *)states withRange:(NSRange)range
 {
 	(void)states;
-	[self redwoodNoSuchMember:"render pipeline states" atIndex:range.location];
+	[self hkNoSuchMember:"render pipeline states" atIndex:range.location];
 }
 - (void)setComputePipelineState:(id)state atIndex:(NSUInteger)index
 {
 	(void)state;
-	[self redwoodNoSuchMember:"a compute pipeline state" atIndex:index];
+	[self hkNoSuchMember:"a compute pipeline state" atIndex:index];
 }
 - (void)setComputePipelineStates:(const id *)states withRange:(NSRange)range
 {
 	(void)states;
-	[self redwoodNoSuchMember:"compute pipeline states" atIndex:range.location];
+	[self hkNoSuchMember:"compute pipeline states" atIndex:range.location];
 }
 - (void)setIndirectCommandBuffer:(id)buffer atIndex:(NSUInteger)index
 {
 	(void)buffer;
-	[self redwoodNoSuchMember:"an indirect command buffer" atIndex:index];
+	[self hkNoSuchMember:"an indirect command buffer" atIndex:index];
 }
 - (void)setIndirectCommandBuffers:(const id *)buffers withRange:(NSRange)range
 {
 	(void)buffers;
-	[self redwoodNoSuchMember:"indirect command buffers" atIndex:range.location];
+	[self hkNoSuchMember:"indirect command buffers" atIndex:range.location];
 }
 - (void)setAccelerationStructure:(id)structure atIndex:(NSUInteger)index
 {
 	(void)structure;
-	[self redwoodNoSuchMember:"an acceleration structure" atIndex:index];
+	[self hkNoSuchMember:"an acceleration structure" atIndex:index];
 }
 - (void)setVisibleFunctionTable:(id)table atIndex:(NSUInteger)index
 {
 	(void)table;
-	[self redwoodNoSuchMember:"a visible function table" atIndex:index];
+	[self hkNoSuchMember:"a visible function table" atIndex:index];
 }
 - (void)setVisibleFunctionTables:(const id *)tables withRange:(NSRange)range
 {
 	(void)tables;
-	[self redwoodNoSuchMember:"visible function tables" atIndex:range.location];
+	[self hkNoSuchMember:"visible function tables" atIndex:range.location];
 }
 - (void)setIntersectionFunctionTable:(id)table atIndex:(NSUInteger)index
 {
 	(void)table;
-	[self redwoodNoSuchMember:"an intersection function table" atIndex:index];
+	[self hkNoSuchMember:"an intersection function table" atIndex:index];
 }
 - (void)setIntersectionFunctionTables:(const id *)tables withRange:(NSRange)range
 {
 	(void)tables;
-	[self redwoodNoSuchMember:"intersection function tables" atIndex:range.location];
+	[self hkNoSuchMember:"intersection function tables" atIndex:range.location];
 }
 
 @end
@@ -6292,12 +6292,12 @@ rw_function_argument_encoder(id self, SEL cmd, NSUInteger index)
 	id device = ((id (*)(id, SEL))objc_msgSend)(self, sel_getUid("device"));
 
 	(void)cmd;
-	if (![device isKindOfClass:[RedwoodMetalDevice class]]) {
+	if (![device isKindOfClass:[HKMetalDevice class]]) {
 		rw_print("-newArgumentEncoderWithBufferIndex: on a function whose device is "
 		         "a %s and not ours\n", class_getName(object_getClass(device)));
 		return nil;
 	}
-	return [(RedwoodMetalDevice *)device redwoodArgumentEncoderForFunction:self
+	return [(HKMetalDevice *)device hkArgumentEncoderForFunction:self
 								  bufferIndex:index];
 }
 
