@@ -3,20 +3,16 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.redwood.demo</string>
+	<string>com.hackios.wifi</string>
+	<!-- with wifi=1 among the kernel's arguments: has configd configure the radio's interface (src/net_test.m,
+	     "wifi"); without, it ends at once -->
 	<key>ProgramArguments</key>
 	<array>
-		<string>/redwood/sbin/init</string>
-		<string>/redwood/etc/rc.jobs</string>
+		<string>/hackios/bin/net_test</string>
+		<string>wifi</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
-	<key>AbandonProcessGroup</key>
-	<true/>
-	<!-- not a background job: those get their timers rounded up by a tenth of a second,
-	     and the touch gestures replayed from here are a matter of milliseconds -->
-	<key>ProcessType</key>
-	<string>Interactive</string>
 	<key>StandardOutPath</key>
 	<string>/dev/console</string>
 	<key>StandardErrorPath</key>

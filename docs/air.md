@@ -645,7 +645,7 @@ of counted. The numbers above are from suites where 11 of each conversion's 22 i
 
   What does remain for the kernel line is the latch: one timeout should not kill the GPU for the
   rest of a boot. Linux's `msm` does a hangcheck, a reset and an error return; this port latches
-  `gGPUReported` and answers every later wait at once (`RedwoodGPU.cpp`). That is robustness
+  `gGPUReported` and answers every later wait at once (`HKGPU.cpp`). That is robustness
   against bad input — worth having, and not the reason Apple's kernels do not run.
 
   **That latch now has a way out, behind a boot-arg — built, not yet run.** `gpu_recover=1`
@@ -796,8 +796,8 @@ the 258 is and is not.
 **Decision: a Mesa frontend in Mesa's tree, shaped like `src/compiler/spirv`.** Its entry point
 is one function, `air_to_nir()` (`nir_air.h`), the analogue of `spirv_to_nir()`. In this
 repository the sources are `tools/mesa/air/`; `tools/mk-mesa.sh` and `tools/air/mk-host.sh` copy
-them to `src/compiler/air/` of the pinned Mesa release, exactly as `tools/mesa/redwood-drm/` is
-copied to `src/redwood-drm/`, and `tools/mesa/air.patch` adds the two lines of meson that build
+them to `src/compiler/air/` of the pinned Mesa release, exactly as `tools/mesa/hackios-drm/` is
+copied to `src/hackios-drm/`, and `tools/mesa/air.patch` adds the two lines of meson that build
 it. The tree is the shape an upstream merge request would have.
 
 Why not a standalone library that Mesa links:
@@ -2390,12 +2390,12 @@ Three references, each independent of the translator:
 
    **The reason this took a night longer than it needed to was a sentence in this document, and
    it was wrong.** It said that "getting that directory into the boot image is the flash-root
-   machinery of subsystem (2), which this work is not supposed to touch". It is not. `/redwood/share`
+   machinery of subsystem (2), which this work is not supposed to touch". It is not. `/hackios/share`
    already existed and already carried a data file that a test reads (`pattern.bin`, which `init`
    verifies through `read()` and `mmap()`), and `EXTRA` already carried arbitrary host files into
-   `/redwood/bin`. `EXTRA_SHARE` is ten lines of `build.sh`. A boundary the brief drew for good
+   `/hackios/bin`. `EXTRA_SHARE` is ten lines of `build.sh`. A boundary the brief drew for good
    reasons had been reached for as the reason not to look into something, and the check that would
-   have cost a minute — reading what `/redwood/share` is for — was never made. A constraint is not
+   have cost a minute — reading what `/hackios/share` is for — was never made. A constraint is not
    evidence about a thing it does not cover.
 
    **What the first run on the phone actually found was in the harness, not the GPU**
@@ -2409,7 +2409,7 @@ Three references, each independent of the translator:
    therefore comparable without the manifest and without a shell.
 
    The other 98 of the 100 modules carried did not run, because the job list ended with
-   `/bin/sh /redwood/share/airops/run.sh` and the answer was
+   `/bin/sh /hackios/share/airops/run.sh` and the answer was
    **`/bin/sh: No such file or directory`, status 127. iOS 16.5's own root has no shell at all**
    — `/bin` holds `df` and `ps`, and nothing else. The `/var/jb/bin/sh` that `rc.jobs.jb` and
    `rc.jobs.sileo` run belongs to the package manager's prefix, which only a `JB=1` image carries.
@@ -2784,7 +2784,7 @@ an unhandled metadata key), so "features not yet handled" is a ranked list, not 
   and four of the sixteen masks are palindromes (None, All, green|blue, red|alpha), so a suite
   built out of "write everything" and "write nothing" would not notice. Two independent sources pin
   the numbering: Apple's `MTLRenderPipeline.h` for this release, which
-  `userland/src/redwoodmetal.m` `_Static_assert`s against so a disagreement is a *build failure*;
+  `userland/src/hkmetal.m` `_Static_assert`s against so a disagreement is a *build failure*;
   and `Metal.framework`'s own value-to-string code on the device, where `MTLBlendFactorString`
   (`0x181b08730`) bounds its argument at 18 over a nineteen-entry table and
   `MTLColorWriteMaskString` (`0x181b08754`) tests bit 3 for "R" and bit 0 for "A", which *is* the
@@ -2910,7 +2910,7 @@ the Mesa already on the phone rather than being built from nothing:
 
 - The port's Mesa **already creates a Gallium screen for the Adreno**:
   `osmesa_create_gpu_screen()` in `tools/mesa/freedreno-darwin.patch` opens the kernel's `msm`
-  driver through `tools/mesa/redwood-drm` and calls `fd_drm_screen_create_renderonly()`. It also
+  driver through `tools/mesa/hackios-drm` and calls `fd_drm_screen_create_renderonly()`. It also
   already has `osmesa_surface_resource()`, which wraps an IOSurface as a `pipe_resource`. So the
   Gallium layer is reachable inside the library CoreAnimation already draws iOS through.
 - **freedreno takes NIR natively** (`PIPE_SHADER_CAP_SUPPORTED_IRS` includes
@@ -2922,10 +2922,10 @@ the Mesa already on the phone rather than being built from nothing:
 
 **That is now built and in the image, and no export was needed.** `air_run` is built *inside* the
 Mesa cross build (`AIR=1 tools/mk-mesa.sh`), so it links Gallium's own static libraries and opens
-the Adreno itself — `drmOpenWithType("msm", …)` through `tools/mesa/redwood-drm`, then
+the Adreno itself — `drmOpenWithType("msm", …)` through `tools/mesa/hackios-drm`, then
 `fd_drm_screen_create_renderonly()`, exactly as `osmesa_create_gpu_screen()` does. It needs
 nothing exported from `libOSMesa` and does not load it: a 9.8 MB arm64 Mach-O against libSystem,
-libz and IOKit alone. `userland/build.sh` puts it in `/redwood/bin`, and `rc.jobs.air` runs it.
+libz and IOKit alone. `userland/build.sh` puts it in `/hackios/bin`, and `rc.jobs.air` runs it.
 
 The same source takes the GPU where there is one and falls back to software where there is not,
 so it is the binary tested on this machine — not a variant of it. Its first line says which it
@@ -4143,7 +4143,7 @@ exists to enforce.
 ##### 8.2.2 Built: the runtime's half, where an encoder records and nothing is written
 
 The design above says the runtime "cannot be a writer; it has to be a **recorder**". It is one
-now, in the library (`air_metal.c`, `air_metal.h`) and in the driver (`redwoodmetal.m`), and the
+now, in the library (`air_metal.c`, `air_metal.h`) and in the driver (`hkmetal.m`), and the
 measurement is differential: **the same pixel comes out of an argument buffer as out of direct
 arguments**, and every record deliberately made wrong prints a different picture that is named in
 advance. `tools/air/argbufruncheck.sh` is that run — **20 checks, 0 failed**, on this machine,
