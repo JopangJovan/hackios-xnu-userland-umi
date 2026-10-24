@@ -103,6 +103,9 @@ IOS_JOBS=${JOBS-"
 	com.apple.backboardd com.apple.mobile.usermanagerd com.apple.mobilegestalt.xpc com.apple.lsd
 	com.apple.powerd com.apple.analyticsd com.apple.logd_helper
 	com.apple.iconservices.iconservicesagent com.apple.pluginkit.pkd
+	com.apple.FileCoordination com.apple.FileProvider
+	com.apple.diskarbitrationd com.apple.storagedatad com.apple.storagekitd
+	com.apple.filesystems.userfsd com.apple.filesystems.userfs_helper com.apple.filesystems.livefileproviderd
 	com.apple.SpringBoard
 "}
 # iOS's own Wi-Fi daemon, for Settings to have a Wi-Fi to show: the kernel answers it in
@@ -512,6 +515,8 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 	# the prefix with the root on the flash, downloads every package and index there, and without it each
 	# download ended in "No such file or directory"
 	printf 'd\t700\t501\t501\t/private/var/mobile/tmp\n' >> root/etc/var.skel
+	# the local Files provider's root; /private/var is a fresh ramfs, so make it on every boot.
+	printf 'd\t755\t501\t501\t/private/var/mobile/Documents\n' >> root/etc/var.skel
 	# A key of ours for root, when there is one: ssh/authorized_keys, never in the repository (like
 	# fw-*). dropbear from the package manager's prefix reads it and lets us in over the phone's
 	# Wi-Fi, which saves rebuilding an image for every question one wants to ask a running iOS. It
