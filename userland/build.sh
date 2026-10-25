@@ -603,6 +603,14 @@ umi_firmware() {
 			install -m 0644 "$f" "$destination/cs35l41/"
 		done
 	fi
+	# Hastings Bluetooth uses its own firmware partition, separate from Wi-Fi.
+	if [ -d ../fw-bluetooth ]; then
+		mkdir -p "$destination/qca6390-bt"
+		for f in htbtfw10.tlv htbtfw20.tlv htnv10.bin htnv20.bin; do
+			[ -f "../fw-bluetooth/$f" ] || continue
+			install -m 0644 "../fw-bluetooth/$f" "$destination/qca6390-bt/"
+		done
+	fi
 	if [ -d ../fw-audio/acdbdata ]; then
 		mkdir -p "$destination/acdbdata"
 		cp -a ../fw-audio/acdbdata/. "$destination/acdbdata/"
