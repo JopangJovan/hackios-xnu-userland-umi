@@ -287,6 +287,17 @@ for label in labels:
     # a job that is named is wanted, whatever hardware it says it is for: wifid's asks for a node "wlan" in the
     # device tree, which the loader's tree does not have yet
     job.pop('_LimitLoadToDeviceTree', None)
+    if label == 'com.apple.bluetoothd' and os.environ.get('BLUETOOTH') == '1':
+        job.setdefault('EnvironmentVariables', {}).update(
+            BT_HCI_TRANSPORT='H4:POSIX:com.hackios.bluetooth,115200',
+            BT_BAUDRATE='115200')
+    if label == 'com.apple.BlueTool' and os.environ.get('BLUETOOTH') == '1':
+        job.pop('Program', None)
+        job['Label'] = 'com.hackios.bluetool'
+        for key in ('POSIXSpawnType', 'EnablePressuredExit', 'ThrottleInterval'):
+            job.pop(key, None)
+        job['ProcessType'] = 'Interactive'
+        job['ProgramArguments'] = ['/hackios/bin/umi_bluetool']
     if 'all' in oslog or label in oslog:
         job.setdefault('EnvironmentVariables', {})['OS_ACTIVITY_DT_MODE'] = 'YES'
     with open(f'{dest}/{label}.plist', 'wb') as f:

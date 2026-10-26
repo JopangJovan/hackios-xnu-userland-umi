@@ -119,6 +119,8 @@ IOS_JOBS=${JOBS-"
 # (Count a QEMU run log with its duplicate lines removed: run-ios.sh prints launchd's log twice.)
 # WIFID=0 leaves it out.
 [ "${WIFID-1}" != 0 ] && IOS_JOBS="$IOS_JOBS com.apple.wifid"
+# UMI's optional QCA6390 H4 endpoint is enabled in XNU with umi_bt=1.
+[ "${BLUETOOTH-0}" != 1 ] || IOS_JOBS="$IOS_JOBS com.apple.bluetoothd com.apple.BlueTool"
 # AudioSession and CoreHaptics need mediaserverd; its AVAudioSession setup waits for NanoRegistry's
 # paired-device Mach service. Keep both jobs in every image so the server and its clients can start.
 IOS_JOBS="$IOS_JOBS com.apple.mediaserverd com.apple.nanoregistryd"
@@ -136,6 +138,8 @@ INJECT=${INJECT-"/hackios/lib/libhackios.dylib backboardd containermanagerd cont
 /hackios/lib/libhackios-media.dylib mediaserverd
 /hackios/lib/libhackios-app.dylib Sileo
 /hackios/lib/libhackios-tweaks.dylib Preferences"}
+[ "${BLUETOOTH-0}" != 1 ] || INJECT="$INJECT
+/hackios/lib/libhackios-bluetooth.dylib bluetoothd"
 # STOREFRONT=1: and a library of ours inside appstored as well (src/inject_store.c). It is not in the
 # list above because it changes what the daemon believes: AMS's account is made to answer with the
 # storefront Apple's bag server returned for this device, which is how the App Store is asked whether
@@ -191,6 +195,10 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 	if [ -z "$PREBUILT" ]; then
 		# ordinary dynamically linked programs of our own, built against the iOS SDK
 		$DYN -o obj/hello_dyn src/hello_dyn.c
+		if [ "${BLUETOOTH-0}" = 1 ]; then
+			$DYN -fblocks -framework CoreFoundation -framework IOKit -o obj/umi_bluetool src/umi_bluetool.c
+			$DYN -dynamiclib -install_name /hackios/lib/libhackios-bluetooth.dylib -framework CoreFoundation -framework IOKit -o obj/libhackios-bluetooth.dylib src/inject_bluetooth.c
+		fi
 		$DYN -framework CoreFoundation -o obj/svc_test src/svc_test.c
 		$DYN -Wno-four-char-constants -framework CoreFoundation -framework IOSurface -o obj/surf_test src/surf_test.c
 		# an IOSurface of ours imported as a texture of the GPU, written through one view
@@ -371,6 +379,7 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 	fi
 	# The GPU diagnostic is absent from some prebuilt program sets.
 	cp obj/hello_dyn obj/svc_test obj/surf_test obj/rwtouch obj/mg_test root/bin/
+	if [ "${BLUETOOTH-0}" = 1 ]; then cp obj/umi_bluetool root/bin/; fi
 	[ ! -f obj/drawable_test ] || cp obj/drawable_test root/bin/
 	[ -f obj/cpu_test ] && cp obj/cpu_test root/bin/        # (a prebuilt/ from before this program has none)
 	[ -f obj/thermald ] && cp obj/thermald root/bin/
@@ -454,6 +463,7 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 	mkdir -p root/dev root/private/var
 	mkdir -p root/lib
 	cp obj/libhackios.dylib obj/libhackios-sb.dylib root/lib/
+	[ "${BLUETOOTH-0}" != 1 ] || cp obj/libhackios-bluetooth.dylib root/lib/
 	[ -f obj/libhackios-media.dylib ] && cp obj/libhackios-media.dylib root/lib/     # (as with cpu_test)
 	[ -f obj/libhackios-store.dylib ] && cp obj/libhackios-store.dylib root/lib/
 	[ -f obj/libhackios-fairplay.dylib ] && cp obj/libhackios-fairplay.dylib root/lib/
