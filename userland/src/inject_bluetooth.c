@@ -14,7 +14,29 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <signal.h>
+#include <sys/ucontext.h>
 
+static uintptr_t daemon_base;
+/* Async-signal-safe fault location: no unwinder, allocator, or device data. */
+static void report_fault(int signal_number,siginfo_t *info,void *opaque)
+{
+    ucontext_t *context=opaque;
+    uintptr_t values[4]={(uintptr_t)signal_number,(uintptr_t)info->si_addr,
+        context->uc_mcontext->__ss.__pc-daemon_base,
+        context->uc_mcontext->__ss.__lr-daemon_base};
+    char line[160]="UMI Bluetooth fault: signal/address/pc-offset/lr-offset";
+    size_t length=strlen(line);
+    const char digits[]="0123456789abcdef";
+    for(unsigned i=0;i<4;i++) {
+        line[length++]=' ';
+        for(int shift=(int)sizeof(uintptr_t)*8-4;shift>=0;shift-=4)
+            line[length++]=digits[(values[i]>>shift)&15];
+    }
+    line[length++]='\n';
+    (void)write(STDERR_FILENO,line,length);
+    kill(getpid(),signal_number); /* SA_RESETHAND keeps the original fatal outcome. */
+}
 static void (*finish_init_step)(unsigned,const char *);
 static void skip_optional_error_reporting(void)
 {
@@ -74,6 +96,13 @@ __attribute__((constructor)) static void initialize(void)
     }
     if(!image_matches) { fprintf(stderr,"UMI Bluetooth: unsupported daemon UUID; optional init unchanged\n"); return; }
     uintptr_t base=(uintptr_t)header;
+    daemon_base=base;
+    struct sigaction fault_action={0};
+    fault_action.sa_sigaction=report_fault;
+    fault_action.sa_flags=SA_SIGINFO|SA_RESETHAND;
+    sigemptyset(&fault_action.sa_mask);
+    sigaction(SIGSEGV,&fault_action,NULL);
+    sigaction(SIGBUS,&fault_action,NULL);
     /* The native feature initializer populates Broadcom/Apple VSC flags from
      * Apple's model-derived chipset ranges. QCA implements neither range.
      * Preserve its zeroing, identity and logging; skip both range bodies. */
