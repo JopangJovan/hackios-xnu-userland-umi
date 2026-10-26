@@ -13,12 +13,30 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 static void (*finish_init_step)(unsigned,const char *);
 static void skip_optional_error_reporting(void)
 {
     fprintf(stderr,"UMI Bluetooth: skipping unsupported optional error reporting\n");
     finish_init_step(0,"UMI optional erroneous-data reporting unavailable");
+}
+static unsigned (*send_hci)(unsigned,void (*)(unsigned),...);
+static unsigned char initial_random_address[6];
+static void initial_address_complete(unsigned status)
+{
+    fprintf(stderr,"UMI Bluetooth: initial LE random address completion status=%u\n",status);
+    finish_init_step(status,"UMI initial LE random address");
+}
+static void prepare_legacy_address(void)
+{
+    /* Native address formatting accepts the six-byte address in display order.
+     * Use a fresh static random address; never log its bytes. */
+    arc4random_buf(initial_random_address,sizeof(initial_random_address));
+    initial_random_address[0]=(initial_random_address[0]&0x3f)|0xc0;
+    fprintf(stderr,"UMI Bluetooth: programming initial LE random address in legacy mode\n");
+    unsigned status=send_hci(0xa5,initial_address_complete,initial_random_address);
+    if(status) initial_address_complete(status);
 }
 __attribute__((constructor)) static void initialize(void)
 {
@@ -76,6 +94,30 @@ __attribute__((constructor)) static void initialize(void)
         _exit(1);
     }
     fprintf(stderr,"UMI Bluetooth: disabled Apple/Broadcom vendor capabilities\n");
+    /* Allow LE Set Random Address (ID 0xa5) while the native init state is
+     * active. It is now a real init step, completed by the controller. */
+    uint32_t *init_mask=(void *)(base+0x10c968);
+    if(*init_mask!=0xd28404e9) return;
+    vm_address_t init_page=(vm_address_t)init_mask&~((vm_address_t)vm_page_size-1);
+    if(vm_protect(mach_task_self(),init_page,vm_page_size,FALSE,VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY)!=KERN_SUCCESS) return;
+    *init_mask=0xd28405e9;
+    sys_icache_invalidate((void *)init_page,vm_page_size);
+    if(vm_protect(mach_task_self(),init_page,vm_page_size,FALSE,VM_PROT_READ|VM_PROT_EXECUTE)!=KERN_SUCCESS) _exit(1);
+
+    /* Native debug preferences select standard scanning, without synthesizing
+     * successful responses to Apple's multi-core/vendor scan commands. */
+    const void *low_keys[]={CFSTR("DisableLowPowerCoreScan")};
+    const void *vsc_keys[]={CFSTR("DisableVSCScanParams")};
+    const void *values[]={kCFBooleanTrue};
+    CFDictionaryRef low=CFDictionaryCreate(NULL,low_keys,values,1,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+    CFDictionaryRef vsc=CFDictionaryCreate(NULL,vsc_keys,values,1,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+    if(low && vsc) {
+        CFPreferencesSetAppValue(CFSTR("LowPowerCoreScan"),low,CFSTR("com.apple.MobileBluetooth.debug"));
+        CFPreferencesSetAppValue(CFSTR("VSCScanParams"),vsc,CFSTR("com.apple.MobileBluetooth.debug"));
+        fprintf(stderr,"UMI Bluetooth: selected native standard scan preferences\n");
+    }
+    if(low) CFRelease(low);
+    if(vsc) CFRelease(vsc);
     void (**step)(void)=(void *)(base+0x7fbde0);
     const uint32_t *original=(const void *)(base+0x10b970);
     const uint32_t *completion=(const void *)(base+0x1092d8);
@@ -83,12 +125,16 @@ __attribute__((constructor)) static void initialize(void)
         original[1]!=0xa9014ff4 || completion[0]!=0xd10103ff || completion[1]!=0xa90157f6) {
         fprintf(stderr,"UMI Bluetooth: optional init ABI mismatch; unchanged\n"); return;
     }
+    void (**periodic_step)(void)=(void *)(base+0x7fbdb0);
+    if((uintptr_t)*periodic_step!=base+0x10b3bc || *(uint32_t *)(base+0x10b3bc)!=0xd100c3ff) return;
     vm_address_t page=(vm_address_t)step&~((vm_address_t)vm_page_size-1);
     if(vm_protect(mach_task_self(),page,vm_page_size,FALSE,VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY)!=KERN_SUCCESS) {
         fprintf(stderr,"UMI Bluetooth: cannot update private init table\n"); return;
     }
     finish_init_step=(void *)(base+0x1092d8);
     *step=skip_optional_error_reporting;
+    send_hci=(void *)(base+0x10c8c4);
+    *periodic_step=prepare_legacy_address;
     vm_protect(mach_task_self(),page,vm_page_size,FALSE,VM_PROT_READ);
     fprintf(stderr,"UMI Bluetooth: enabled QCA optional-command compatibility\n");
 }
