@@ -15,7 +15,7 @@ What "there at run time" means is the recipe, not what happens to be unpacked on
 two recipes differ. With the system image as the root, it is what select-system.py chose, and a daemon it
 left out as too big really is absent. With the iOS volume on the phone's flash as the root (build.sh
 FLASHBOOT=1), the root is Apple's whole volume: --root-volume names the technical listing of its image
-(ios165/rootfs.slt) and a program counts as there if Apple ships it. Seven jobs turn on that --
+(sysimage/rootfs.slt) and a program counts as there if Apple ships it. Seven jobs turn on that --
 fairplayd, identityservicesd, passd, assistantd, callservicesd, lskdd, searchpartyd -- and were being
 refused on a flash boot for a reason true only of the thinned copy here. (fairplayd now runs on the phone
 and is never missed from a lookup again, but it does not stay: it exits 0 the moment it starts, says nothing,
@@ -82,7 +82,7 @@ import sys
 # It respawns and does it again: 18 crashes in a seven-minute session where the same image without it has
 # none. The boot is not held up -- it reaches the same 118 processes against 119 -- so the trade is 103
 # failed lookups a session against a process dying every fifteen seconds for ever, which is a bad one.
-# Stubbing the first driver is the kind of work HKBattery already is, but the second is an Apple
+# Stubbing the first driver is the kind of work HakiosBattery already is, but the second is an Apple
 # baseband on PCIe, and this phone's modem is on the SoC and speaks QMI to a Qualcomm subsystem -- so what
 # is behind the driver is missing too, not just the driver.
 # cloudd and appstored are IN, and getting there was the most instructive thing in this file.
@@ -130,7 +130,7 @@ import sys
 # (four queries, answers of 159, 842, 200 and 107 bytes), and trustd, geod, maild, gamed, cloudd,
 # StocksWidget and nsurlsessiond all open TLS to Apple and Akamai (17.248.214.x, 17.253.39.x,
 # 2.16.56.93, 23.11.40.157, 95.100.176.233). "net_test: en0: flags 0x8802" was read 0.1 s into user
-# space, before configd had configured it: com.hackios.wifi does that by itself with wifi=1, so a
+# space, before configd had configured it: com.hakios.wifi does that by itself with wifi=1, so a
 # scenario must not ask for DHCP again -- only "waitaddr en0 60".
 # The storefront question is therefore OPEN, and the next measurement has to be made over a channel
 # that does not drop: ssh to the phone (rc.jobs.ssh) and fetch the bag by hand.
@@ -268,36 +268,9 @@ for label in labels:
     with open(f'{src}/{label}.plist', 'rb') as f:
         job = plistlib.load(f)
     job['StandardErrorPath'] = '/dev/console'
-    # ... and the standard output with it, which launchd otherwise sends to /dev/null. That
-    # default cost two nights of reading: the Metal driver says every one of its refusals with
-    # printf, so inside a daemon each one was written to nowhere, and a log with no refusal in
-    # it looked like a log with nothing refused. chronod aborts in RenderBox asking for a
-    # render pipeline and says not a word about why; SpringBoard did the same in Siri's orb.
-    job['StandardOutPath'] = '/dev/console'
-    # One experiment at a time, carried to every job because the thing being measured is what
-    # Apple's own compositor draws. RWA_PACKED16=1 makes the compiler library serve Metal's four
-    # 16-bit packed colour formats on a channel order that was READ off the format names and
-    # never measured; declining them is the honest default and is what the library does without
-    # it. The boot of 22 October showed what declining costs: SpringBoard's icons stopped being
-    # drawn, because its layers ask for one of those formats and a refused texture is a layer
-    # that never appears.
-    for env_name in ('RWA_PACKED16',):
-        if os.environ.get(env_name):
-            job.setdefault('EnvironmentVariables', {})[env_name] = os.environ[env_name]
     # a job that is named is wanted, whatever hardware it says it is for: wifid's asks for a node "wlan" in the
     # device tree, which the loader's tree does not have yet
     job.pop('_LimitLoadToDeviceTree', None)
-    if label == 'com.apple.bluetoothd' and os.environ.get('BLUETOOTH') == '1':
-        job.setdefault('EnvironmentVariables', {}).update(
-            BT_HCI_TRANSPORT='H4:POSIX:com.hackios.bluetooth,115200',
-            BT_BAUDRATE='115200')
-    if label == 'com.apple.BlueTool' and os.environ.get('BLUETOOTH') == '1':
-        job.pop('Program', None)
-        job['Label'] = 'com.hackios.bluetool'
-        for key in ('POSIXSpawnType', 'EnablePressuredExit', 'ThrottleInterval'):
-            job.pop(key, None)
-        job['ProcessType'] = 'Interactive'
-        job['ProgramArguments'] = ['/hackios/bin/umi_bluetool']
     if 'all' in oslog or label in oslog:
         job.setdefault('EnvironmentVariables', {})['OS_ACTIVITY_DT_MODE'] = 'YES'
     with open(f'{dest}/{label}.plist', 'wb') as f:
@@ -325,17 +298,6 @@ if rest:
                     'QueueDirectories', 'StartOnMount', 'LaunchEvents'):
             job.pop(key, None)
         job['StandardErrorPath'] = '/dev/console'
-        job['StandardOutPath'] = '/dev/console'
-        # One experiment at a time, carried to every job because the thing being measured is what
-        # Apple's own compositor draws. RWA_PACKED16=1 makes the compiler library serve Metal's four
-        # 16-bit packed colour formats on a channel order that was READ off the format names and
-        # never measured; declining them is the honest default and is what the library does without
-        # it. The boot of 22 October showed what declining costs: SpringBoard's icons stopped being
-        # drawn, because its layers ask for one of those formats and a refused texture is a layer
-        # that never appears.
-        for env_name in ('RWA_PACKED16',):
-            if os.environ.get(env_name):
-                job.setdefault('EnvironmentVariables', {})[env_name] = os.environ[env_name]
         if label in oslog:
             job.setdefault('EnvironmentVariables', {})['OS_ACTIVITY_DT_MODE'] = 'YES'
         with open(f'{dest}/{name}', 'wb') as f:

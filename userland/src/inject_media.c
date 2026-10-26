@@ -1,5 +1,5 @@
 /*
- * libhackios-media.dylib: code of ours inside mediaserverd (see inject.c for how it gets there).
+ * libhakios.media.dylib: code of ours inside mediaserverd (see inject.c for how it gets there).
  *
  * mediaserverd is the audio server, and also the camera's: the capture stack of CMCapture lives
  * in the same process. Soon after it starts, that stack "prewarms" the Core Image filters of the
@@ -13,7 +13,7 @@
  * and the stock wallpaper of iOS 16, whose layers are four such pictures, is its gradient alone.
  * There is no hardware decoder here; VideoToolbox takes its software one (VCPHEVC.videocodec).
  *
- * The flashlight (only where the kernel has one: torch=3, /dev/hk-torch): Control Center's
+ * The flashlight (only where the kernel has one: torch=3, /dev/hakios-torch): Control Center's
  * button and AVFlashlight reach FigFlashlight in here, which asks the capture stack's device vendor
  * (+[BWFigCaptureDeviceVendor sharedCaptureDeviceVendor]) for the camera device and its back
  * camera's stream, and sets the stream's "TorchLevel" (0 to 1). Without a camera there is no
@@ -22,7 +22,7 @@
  * by where it calls from -- is given one of ours, with a device and a stream whose torch level goes
  * to the kernel (see flashlight_*() below). Everybody else still gets none, as before.
  *
- * The camera (only where the kernel has one: cam=5, /dev/hk-camera): the vendor is made for
+ * The camera (only where the kernel has one: cam=5, /dev/hakios-camera): the vendor is made for
  * everybody, with the create function of our capture device (camera_device.c) in place of the
  * one H10ISP.mediacapture would give for the iPhone's ISP; the capture graph is built around it and
  * its frames reach Camera.app's preview (see camera_device.c). Its stream takes the torch level too,
@@ -48,7 +48,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/sysctl.h>
 #include <unistd.h>
 
 static void
@@ -81,9 +80,9 @@ prewarm_portrait_filter(__unused id self, __unused SEL selector, __unused int ve
 
 /* ---- the flashlight ------------------------------------------------------------------------------- */
 
-static int torch = -1;                  /* /dev/hk-torch */
-static bool camera;                     /* /dev/hk-camera is there */
-extern int hk_camera_device_create(const void *allocator, const void *options, void **out);
+static int torch = -1;                  /* /dev/hakios-torch */
+static bool camera;                     /* /dev/hakios-camera is there */
+extern int hakios_camera_device_create(const void *allocator, const void *options, void **out);
 static Class vendor_class, device_class, stream_class;
 static IMP original_shared_vendor;
 static unsigned torch_said;
@@ -108,9 +107,9 @@ shared_vendor(id self, SEL selector)
 	if (vendor != NULL) {
 		return vendor;
 	}
-	if (!camera && access("/dev/hk-camera", F_OK) == 0) {
+	if (!camera && access("/dev/hakios-camera", F_OK) == 0) {
 		camera = true;          /* (should the kernel have made it after mediaserverd started) */
-		say("redwood: mediaserverd: the kernel has a camera (/dev/hk-camera)\n");
+		say("hakios: mediaserverd: the kernel has a camera (/dev/hakios-camera)\n");
 	}
 	if (camera) {
 		pthread_mutex_lock(&lock);
@@ -118,8 +117,8 @@ shared_vendor(id self, SEL selector)
 			id made = ((id (*)(Class, SEL))objc_msgSend)(objc_getClass("BWFigCaptureDeviceVendor"), sel_registerName("alloc"));
 
 			camera_vendor = ((id (*)(id, SEL, void *))objc_msgSend)(made, sel_registerName("initWithDeviceCreateFunction:"),
-			    (void *)hk_camera_device_create);
-			say("redwood: mediaserverd: the camera's device vendor %s\n", camera_vendor ? "made (camera_device.c)" :
+			    (void *)hakios_camera_device_create);
+			say("hakios: mediaserverd: the camera's device vendor %s\n", camera_vendor ? "made (camera_device.c)" :
 			    "CANNOT BE MADE");
 		}
 		pthread_mutex_unlock(&lock);
@@ -129,7 +128,7 @@ shared_vendor(id self, SEL selector)
 		if (caller >= flashlight_code[i].from && caller < flashlight_code[i].to) {
 			if (ours == NULL) {
 				ours = class_createInstance(vendor_class, 0);
-				say("redwood: mediaserverd: no camera, so no device vendor: FigFlashlight gets the flashlight's own\n");
+				say("hakios: mediaserverd: no camera, so no device vendor: FigFlashlight gets the flashlight's own\n");
 			}
 			return ours;
 		}
@@ -144,8 +143,8 @@ flashlight_set(uint32_t level)
 
 	if (written != (ssize_t)sizeof(level) || torch_said < 40) {
 		torch_said++;
-		say("redwood: mediaserverd: the flashlight at %u of 1000%s\n", level, written == (ssize_t)sizeof(level) ? "" :
-		    " (NOT TAKEN by /dev/hk-torch)");
+		say("hakios: mediaserverd: the flashlight at %u of 1000%s\n", level, written == (ssize_t)sizeof(level) ? "" :
+		    " (NOT TAKEN by /dev/hakios-torch)");
 	}
 }
 
@@ -282,7 +281,7 @@ audio_source_start(id self, SEL selector, id *error)
 	*error = NULL;                  /* (autoreleased by the capture stack: not ours to give back) */
 	if (!said) {
 		said = true;
-		say("redwood: mediaserverd: there is no capture audio on this phone: the session's audio source gives nothing, "
+		say("hakios: mediaserverd: there is no capture audio on this phone: the session's audio source gives nothing, "
 		    "and the camera runs without it\n");
 	}
 	return true;
@@ -309,7 +308,7 @@ quality_prioritization(id self, SEL selector)
 
 	if (asked > 1 && !said) {
 		said = true;
-		say("redwood: mediaserverd: a photograph's quality prioritization %d taken as 1 (speed): one frame, no SIS bracket\n",
+		say("hakios: mediaserverd: a photograph's quality prioritization %d taken as 1 (speed): one frame, no SIS bracket\n",
 		    asked);
 	}
 	return asked > 1 ? 1 : asked;
@@ -331,7 +330,7 @@ gnr_render(id self, SEL selector, void *sample_buffer, id input)
 	(void)selector, (void)input;
 	if (!said) {
 		said = true;
-		say("redwood: mediaserverd: a photograph goes past the noise reduction, which has nothing to do it with here\n");
+		say("hakios: mediaserverd: a photograph goes past the noise reduction, which has nothing to do it with here\n");
 	}
 	if (output != nil) {
 		((void (*)(id, SEL, void *))objc_msgSend)(output, sel_registerName("emitSampleBuffer:"), sample_buffer);
@@ -364,7 +363,7 @@ time_photo_encoder(id output, CMSampleBufferRef sample_buffer)
 			if (timebase.denom == 0) {
 				mach_timebase_info(&timebase);
 			}
-			say("redwood: mediaserverd: a photograph of %zux%zu encoded in %.0f ms\n", CVPixelBufferGetWidth(image),
+			say("hakios: mediaserverd: a photograph of %zux%zu encoded in %.0f ms\n", CVPixelBufferGetWidth(image),
 			    CVPixelBufferGetHeight(image), (double)(mach_absolute_time() - began) * timebase.numer / timebase.denom / 1e6);
 		}
 		began = 0;
@@ -395,7 +394,7 @@ emit_sample_buffer(id self, SEL selector, CMSampleBufferRef sample_buffer)
 	if (sample_buffer == NULL) {
 		if (!said) {
 			said = true;
-			say("redwood: mediaserverd: a node's output was given no sample buffer (the silent audio source's): not passed on\n");
+			say("hakios: mediaserverd: a node's output was given no sample buffer (the silent audio source's): not passed on\n");
 		}
 		return;
 	}
@@ -426,7 +425,7 @@ register_hevc_encoder(void)
 	int status;
 
 	if (create == NULL || register_encoder == NULL || id_key == NULL || name_key == NULL || hardware_key == NULL) {
-		say("redwood: mediaserverd: no software HEVC encoder to register (%s)\n", codec == NULL ? "no VCPHEVC.videocodec" :
+		say("hakios: mediaserverd: no software HEVC encoder to register (%s)\n", codec == NULL ? "no VCPHEVC.videocodec" :
 		    create == NULL ? "no HEVCVideoEncoder_CreateInstance" : "VideoToolbox without VTRegisterVideoEncoderWithInfo");
 		return;
 	}
@@ -438,7 +437,7 @@ register_hevc_encoder(void)
 
 	status = register_encoder('hvc1', info, create);
 	CFRelease(info);
-	say("redwood: mediaserverd: the software HEVC encoder of VCPHEVC.videocodec registered for 'hvc1' (%d)\n", status);
+	say("hakios: mediaserverd: the software HEVC encoder of VCPHEVC.videocodec registered for 'hvc1' (%d)\n", status);
 }
 
 struct method_spec {
@@ -473,9 +472,9 @@ flashlight_classes(void)
 		{ "setProperty:value:", "i@:@@", (IMP)flashlight_stream_set },
 	};
 
-	vendor_class = make_class("HKFlashlightVendor", vendor, sizeof(vendor) / sizeof(vendor[0]));
-	device_class = make_class("HKFlashlightDevice", NULL, 0);
-	stream_class = make_class("HKFlashlightStream", stream, sizeof(stream) / sizeof(stream[0]));
+	vendor_class = make_class("HakiosFlashlightVendor", vendor, sizeof(vendor) / sizeof(vendor[0]));
+	device_class = make_class("HakiosFlashlightDevice", NULL, 0);
+	stream_class = make_class("HakiosFlashlightStream", stream, sizeof(stream) / sizeof(stream[0]));
 }
 
 /*
@@ -506,110 +505,9 @@ static struct replacement {
 	{ "BWNodeOutput", "emitSampleBuffer:", 0x1a1ea37e0UL, (IMP)emit_sample_buffer, &original_emit_sample_buffer, true, false },
 };
 
-/* ---- the Metal device leaves this process before the capture stack asks for it -------------------- */
-
-/*
- * With the Metal properties on the accelerator service (boot-arg metal=1) MTLCreateSystemDefaultDevice()
- * answers in every process, and in mediaserverd the first to ask is the capture stack: CMCapture's
- * FigPreloadShadersInternal reaches -[_MTLDevice newLibraryWithURL:error:] through three functions of
- * AppleCVAPhoto, asking for System/Library/PrivateFrameworks/AppleCVAPhoto.framework/Resources/
- * cvadepth-iOS.metallib. That file is not in this image (ios165/select-system.py drops .metallib under
- * the framework directories), so the URL is nil and Metal aborts on `url must not be nil' -- twenty-eight
- * times in one boot, launchd restarting the daemon after each (logs/135751-run.log, docs/metal.md 10.38).
- * AppleCVAPhoto itself survives a library it cannot make: it checks the result and logs "Error creating
- * metal library". What kills the process is Metal's own assertion, and that is reached only because there
- * IS a device to send the message to.
- *
- * So the device is taken out of this process, exactly as inject.c does for the window server: Metal keeps
- * every device it has made in one static NSMutableArray (0x1e1efe9a0, __DATA_DIRTY.__bss, so one per
- * process), and MTLCreateSystemDefaultDevice() is no more than "if that array holds exactly one object,
- * return it" -- an empty array answers nil without a single instruction of Metal's being touched. The
- * array is built on first use, so it has to be asked for first; that makes the device object, which is
- * what the capture stack's next instruction would have done anyway, so the process pays nothing new.
- * The device is retained and never released, for inject.c's reason: what our -dealloc would do to a GPU
- * is not measured.
- *
- * WHEN, and why not where inject.c does it. There the hook is -[CAWindowServer _detectDisplays], the last
- * Objective-C method on the way in and an address that can be checked. Here the way in is three C
- * functions of AppleCVAPhoto with no method of ours to stand on, so this runs from the add-image notifier
- * this library already registers, the first time Metal is in the process at all -- which is before any
- * code of the image that brought it has run. Being early cannot cost correctness: if the device can be
- * made, it is made and removed; if the accelerator service is not matched yet and the array is built
- * empty, nil is what the capture stack gets, and nil is the whole point.
- *
- * Boot-arg mediamtl=1 leaves the device where it is. It is a switch of its own and not inject.c's camtl=1
- * because the two processes do not risk the same thing: a window server that aborts is a crash loop and a
- * black screen, while mediaserverd aborting costs HEIC decoding, the camera and the sound. A boot may
- * reasonably want Metal in one and not the other. Either way the metallib has to be in the image first,
- * or the same assertion comes straight back.
- */
-#define MTL_DEVICE_ARRAY        0x1e1efe9a0UL   /* Metal's static NSMutableArray *_deviceArray */
-
-extern id objc_retain(id object);
-
-static bool metal_left_alone;                   /* boot-arg mediamtl=1 */
-
-static bool
-boot_arg(const char *what)
-{
-	char arguments[1024] = "";
-	size_t size = sizeof(arguments) - 1;
-
-	return sysctlbyname("kern.bootargs", arguments, &size, NULL, 0) == 0 &&
-	    strstr(arguments, what) != NULL;
-}
-
-static void
-keep_metal_from_the_capture_stack(void)
-{
-	static bool done;
-	unsigned long (*ask)(id, SEL) = (unsigned long (*)(id, SEL))objc_msgSend;
-	void (*tell)(id, SEL) = (void (*)(id, SEL))objc_msgSend;
-	id *slot = (id *)(MTL_DEVICE_ARRAY + slide);
-	id (*create)(void);
-	id device, array;
-	unsigned long held;
-
-	if (done || metal_left_alone) {
-		return;
-	}
-	/* Metal is not in this process yet: the image that brings it has not arrived, and the notifier
-	 * will be back here when it does. Nothing is printed for that -- a line per image would bury
-	 * the log, and the constructor has already said that this is armed. */
-	if ((create = (id (*)(void))dlsym(RTLD_DEFAULT, "MTLCreateSystemDefaultDevice")) == NULL) {
-		return;
-	}
-	done = true;
-	if ((device = create()) == NULL) {
-		say("redwood: mediaserverd: no Metal device in this process, so the capture stack's shader "
-		    "preload has nothing to ask\n");
-		return;
-	}
-	if ((array = *slot) == NULL) {
-		say("redwood: mediaserverd: a device, but nothing at %#lx; the device list is NOT emptied\n",
-		    MTL_DEVICE_ARRAY);
-		return;
-	}
-	if (!((BOOL (*)(id, SEL, Class))objc_msgSend)(array, sel_registerName("isKindOfClass:"),
-	    objc_getClass("NSMutableArray"))) {
-		say("redwood: mediaserverd: %#lx holds a %s, not Metal's device array; left alone\n",
-		    MTL_DEVICE_ARRAY, object_getClassName(array));
-		return;
-	}
-	held = ask(array, sel_registerName("count"));
-	objc_retain(device);
-	tell(array, sel_registerName("removeAllObjects"));
-	say("redwood: mediaserverd: %s taken out of the capture stack (%lu in the list, %lu now); "
-	    "MTLCreateSystemDefaultDevice() = %s\n", object_getClassName(device), held,
-	    ask(array, sel_registerName("count")), create() != NULL ? "A DEVICE STILL" : "nil");
-}
-
 static void
 image_added(__unused const struct mach_header *header, __unused intptr_t image_slide)
 {
-	/* before anything of the image that was just added runs, and this is the only place in this
-	 * library that is told about a new image at all */
-	keep_metal_from_the_capture_stack();
 	for (size_t i = 0; i < sizeof(replacements) / sizeof(replacements[0]); i++) {
 		struct replacement *r = &replacements[i];
 		Class cls;
@@ -624,7 +522,7 @@ image_added(__unused const struct mach_header *header, __unused intptr_t image_s
 		    class_getClassMethod(cls, sel_registerName(r->selector));
 		original = method ? method_getImplementation(method) : NULL;
 		if (original == NULL || (uintptr_t)original != r->expected + slide) {
-			say("redwood: %c[%s %s]: found %#lx, expected %#lx; left alone\n", r->instance ? '-' : '+', r->class_name,
+			say("hakios: %c[%s %s]: found %#lx, expected %#lx; left alone\n", r->instance ? '-' : '+', r->class_name,
 			    r->selector,
 			    original ? (uintptr_t)original - slide : 0, r->expected);
 			continue;
@@ -633,13 +531,13 @@ image_added(__unused const struct mach_header *header, __unused intptr_t image_s
 			*r->original = original;
 		}
 		method_setImplementation(method, r->replacement);
-		say("redwood: mediaserverd: %c[%s %s] replaced\n", r->instance ? '-' : '+', r->class_name, r->selector);
+		say("hakios: mediaserverd: %c[%s %s] replaced\n", r->instance ? '-' : '+', r->class_name, r->selector);
 	}
 }
 
 __attribute__((constructor))
 static void
-hk_media_init(void)
+hakios_media_init(void)
 {
 	const char *name = getprogname();
 	size_t length = 0;
@@ -648,22 +546,14 @@ hk_media_init(void)
 		return;
 	}
 	slide = (uintptr_t)_dyld_get_shared_cache_range(&length) - CACHE_BASE;
-	metal_left_alone = boot_arg("mediamtl=1");
-	if (metal_left_alone) {
-		say("redwood: mediaserverd: mediamtl=1: the capture stack may have the Metal device (it "
-		    "needs AppleCVAPhoto's cvadepth-iOS.metallib in the image)\n");
-	} else {
-		say("redwood: mediaserverd: the Metal device leaves this process as soon as Metal is in "
-		    "it (mediamtl=1 leaves it there)\n");
-	}
-	torch = open("/dev/hk-torch", O_WRONLY);
-	camera = access("/dev/hk-camera", F_OK) == 0;
+	torch = open("/dev/hakios-torch", O_WRONLY);
+	camera = access("/dev/hakios-camera", F_OK) == 0;
 	if (torch >= 0) {
 		flashlight_classes();
-		say("redwood: mediaserverd: the kernel has a flashlight (/dev/hk-torch)\n");
+		say("hakios: mediaserverd: the kernel has a flashlight (/dev/hakios-torch)\n");
 	}
 	if (camera) {
-		say("redwood: mediaserverd: the kernel has a camera (/dev/hk-camera)\n");
+		say("hakios: mediaserverd: the kernel has a camera (/dev/hakios-camera)\n");
 		register_hevc_encoder();
 	}
 	_dyld_register_func_for_add_image(image_added);         /* also called for every image already there */

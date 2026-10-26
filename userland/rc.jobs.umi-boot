@@ -1,2 +1,0 @@
-# First UMI iOS framebuffer boot: keep the session free of benchmark load.
-/hackios/bin/hello_dyn UMI-iOS-boot

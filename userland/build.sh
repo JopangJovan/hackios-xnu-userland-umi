@@ -19,15 +19,15 @@
 #                                   init hands the list to the kernel (etc/inject.conf -> sysctl kern.exec_inject)
 #                      STOREFRONT=1 ... and src/inject_store.c inside appstored: the storefront answered,
 #                                   and a bag request watched for (an experiment; see that file)
-#                      EXTRA="..."  more programs for /hackios/bin (files on this machine): one-off
+#                      EXTRA="..."  more programs for /redwood/bin (files on this machine): one-off
 #                                   diagnostics, which a file given as RC_JOBS can then run
-#                      EXTRA_SHARE="..." directories on this machine to copy whole into /hackios/share,
+#                      EXTRA_SHARE="..." directories on this machine to copy whole into /redwood/share,
 #                                   each under its own name: the data a one-off diagnostic reads, when it
 #                                   needs more than a program (tools/air/intrincheck.py --emit writes such
 #                                   a directory). This goes into the boot volume, which every recipe
 #                                   carries and which the flash recipe puts in RAM, so its size is paid
 #                                   for at every boot -- a few megabytes, not more
-#                      RC_JOBS=<file> what the job com.hackios.demo runs: rc.jobs (default), or
+#                      RC_JOBS=<file> what the job com.hakios.demo runs: rc.jobs (default), or
 #                                   rc.jobs.unlock, which also swipes the lock screen away (for the phone,
 #                                   where nothing else can touch the screen yet).
 #                                   A job list cannot assume a shell. iOS 16.5's own root has none at all
@@ -42,7 +42,7 @@
 #                                   air_run grew --buffer.
 #                      GL=1         with an OpenGL ES implementation for the window server: Mesa
 #                                   (tools/mk-mesa.sh fetches and builds it) behind src/eagl.c, as
-#                                   lib/libOSMesa.8.dylib (15 MB) and lib/libhackios-gl.dylib. Where the
+#                                   lib/libOSMesa.8.dylib (15 MB) and lib/libhakios.gl.dylib. Where the
 #                                   kernel has started the phone's GPU, CoreAnimation then draws with its
 #                                   OpenGL ES renderer, by that GPU (boot-arg gpu=1); anywhere else -- QEMU,
 #                                   no boot-arg, no firmware in ../fw-gpu -- the library is not even loaded
@@ -50,11 +50,13 @@
 #                                   GL=test: only the library and bin/gl_test (a triangle, src/gl_test.c;
 #                                   RC_JOBS=rc.jobs.gltest runs it); the window server stays as it is.
 #                      ADSP=1       with the audio DSP's firmware from ../fw-audio in fw/ (20 MB; for the
-#                                   kernel's adsp_step=N, bsd/dev/hk_adsp.c, which runs before the root is
+#                                   kernel's adsp_step=N, bsd/dev/hakios.adsp.c, which runs before the root is
 #                                   mounted). Not beside GL=1: the two do not fit the 64 MB the loader takes with
 #                                   the kernel. adsp=1 needs none of it: the system image has the firmware in /fw.
+#                      MODEM=1      stage checked local MPSS firmware from ../fw-modem in system.apfs /fw.
+#                                   This does not start the modem; the XNU MPSS driver is still required.
 #   system.apfs      the system image, the root filesystem (the resident RAM disk, /dev/md0), an
-#                    APFS container: the part of iOS 16.5 chosen by ../ios165/select-system.py at
+#                    APFS container: the part of iOS 16.5 chosen by ../sysimage/select-system.py at
 #                    its real paths, the dyld shared cache, and src/stage0.c as /sbin/launchd (the
 #                    real one is /sbin/launchd.ios). 2.5 GB; upload once per loader session with
 #                    `xl ramdisk userland/system.apfs`. Rebuilt when missing, when its inputs
@@ -81,16 +83,16 @@ source ../xnu-env.sh
 CC="xnu-clang -arch arm64 -Os -static -nostdlib -ffreestanding -fno-stack-protector -fno-builtin -Wall -Wextra"
 LD="-Wl,-e,_start -Wl,-pagezero_size,0x100000000"
 DYN="xnu-clang -arch arm64 -isysroot ${THEOS:-$HOME/theos}/sdks/iPhoneOS16.5.sdk -O1"
-IOS=../ios165
+IOS=../sysimage
 CACHE=$IOS/20F66__iPhone10,3_6
-# ios165/rootfs and ios165/cryptex must be this copy's own directories of hard links, the way
+# sysimage/rootfs and sysimage/cryptex must be this copy's own directories of hard links, the way
 # tools/new-workspace.sh makes them. A symlink to another copy's tree makes sysroot a symlink too, because
 # cp -a does not follow one, and then every rm -rf and mv below edits the shared extraction in place. That
 # happened on 19 October 2026: 491 LaunchDaemons, NanoLaunchDaemons, LaunchAngels, xpc/launchd.plist and
 # private/var went out of the main copy's tree, and only the hard links in the other copies still held them.
 for d in rootfs cryptex cryptex-app; do
 	[ -L $IOS/$d ] || continue
-	echo "build.sh: ios165/$d is a symlink to $(readlink $IOS/$d)" >&2
+	echo "build.sh: sysimage/$d is a symlink to $(readlink $IOS/$d)" >&2
 	echo "build.sh: it has to be a directory of this copy's own: rm it and cp -al the original over," >&2
 	echo "build.sh: as tools/new-workspace.sh does. Building against a link damages the shared tree." >&2
 	exit 1
@@ -103,13 +105,10 @@ IOS_JOBS=${JOBS-"
 	com.apple.backboardd com.apple.mobile.usermanagerd com.apple.mobilegestalt.xpc com.apple.lsd
 	com.apple.powerd com.apple.analyticsd com.apple.logd_helper
 	com.apple.iconservices.iconservicesagent com.apple.pluginkit.pkd
-	com.apple.FileCoordination com.apple.FileProvider
-	com.apple.diskarbitrationd com.apple.storagedatad com.apple.storagekitd
-	com.apple.filesystems.userfsd com.apple.filesystems.userfs_helper com.apple.filesystems.livefileproviderd
 	com.apple.SpringBoard
 "}
 # iOS's own Wi-Fi daemon, for Settings to have a Wi-Fi to show: the kernel answers it in
-# bsd/dev/hk_apple80211.c. With the radio (wifi=1) Settings then shows Wi-Fi on, the network joined and the
+# bsd/dev/hakios.apple80211.c. With the radio (wifi=1) Settings then shows Wi-Fi on, the network joined and the
 # networks the radio hears. NOT FINISHED: a network cannot be joined from Settings yet.
 # It is in by default now, because it costs nothing where there is no radio at all: in QEMU it comes up, talks
 # to itself about country codes and sits there -- 114 processes started against 119 without it, no crash, never
@@ -119,35 +118,28 @@ IOS_JOBS=${JOBS-"
 # (Count a QEMU run log with its duplicate lines removed: run-ios.sh prints launchd's log twice.)
 # WIFID=0 leaves it out.
 [ "${WIFID-1}" != 0 ] && IOS_JOBS="$IOS_JOBS com.apple.wifid"
-# UMI's optional QCA6390 H4 endpoint is enabled in XNU with umi_bt=1.
-[ "${BLUETOOTH-0}" != 1 ] || IOS_JOBS="$IOS_JOBS com.apple.bluetoothd com.apple.BlueTool"
-# AudioSession and CoreHaptics need mediaserverd; its AVAudioSession setup waits for NanoRegistry's
-# paired-device Mach service. Keep both jobs in every image so the server and its clients can start.
-IOS_JOBS="$IOS_JOBS com.apple.mediaserverd com.apple.nanoregistryd"
 # The programs (file names) started with a library of ours inside them: "LIBRARY NAME..." per line
-# (src/inject.c is libhackios.dylib, src/inject_sb.c is libhackios-sb.dylib, src/inject_media.c is
-# libhackios-media.dylib).
+# (src/inject.c is libhakios.dylib, src/inject_sb.c is libhakios.sb.dylib, src/inject_media.c is
+# libhakios.media.dylib).
 # What Sileo runs from /bin (see the package manager's prefix below): the system image's /bin, or the
 # boot volume's bin, bound over the iOS volume's /bin when that is the root (src/init.c, flash_root).
 SILEO_BIN="chmod cp mkdir mv rm"
-# (libhackios-tweaks is the tweak loader of the package manager's prefix, src/inject_tweaks.c: in
+# (libhakios.tweaks is the tweak loader of the package manager's prefix, src/inject_tweaks.c: in
 # SpringBoard the library above opens it, here it is named for the programs that have no library of
 # ours -- Settings, where a tweak's own pane belongs. Add a program's name to have tweaks in it.)
-INJECT=${INJECT-"/hackios/lib/libhackios.dylib backboardd containermanagerd containermanagerd_system
-/hackios/lib/libhackios-sb.dylib SpringBoard
-/hackios/lib/libhackios-media.dylib mediaserverd
-/hackios/lib/libhackios-app.dylib Sileo
-/hackios/lib/libhackios-tweaks.dylib Preferences"}
-[ "${BLUETOOTH-0}" != 1 ] || INJECT="$INJECT
-/hackios/lib/libhackios-bluetooth.dylib bluetoothd"
+INJECT=${INJECT-"/redwood/lib/libhakios.dylib backboardd containermanagerd containermanagerd_system
+/redwood/lib/libhakios.sb.dylib SpringBoard
+/redwood/lib/libhakios.media.dylib mediaserverd
+/redwood/lib/libhakios.app.dylib Sileo
+/redwood/lib/libhakios.tweaks.dylib Preferences"}
 # STOREFRONT=1: and a library of ours inside appstored as well (src/inject_store.c). It is not in the
 # list above because it changes what the daemon believes: AMS's account is made to answer with the
 # storefront Apple's bag server returned for this device, which is how the App Store is asked whether
 # a storefront is the only thing it is missing. It also writes down whether a bag request is ever
 # built at all. For an experiment, not for an image anybody else boots.
 [ -n "$STOREFRONT" ] && INJECT="$INJECT
-/hackios/lib/libhackios-store.dylib appstored AppStore
-/hackios/lib/libhackios-fairplay.dylib fairplayd.H2"
+/redwood/lib/libhakios.store.dylib appstored AppStore
+/redwood/lib/libhakios.fairplay.dylib fairplayd.H2"
 mkdir -p obj
 
 if [ -z "$PREBUILT" ] && ! command -v ld64 >/dev/null; then PREBUILT=1; fi
@@ -178,8 +170,8 @@ cp obj/child root/bin/child
 # ends: the program and its job together, away from the iOS job list below, which several working
 # copies are editing at once.
 [ -f obj/var_store ] && cp obj/var_store root/bin/
-cp com.hackios.varstore.plist root/LaunchDaemons/
-echo "Darwin on redwood: image built $(date '+%Y-%m-%d %H:%M')" > root/etc/motd
+cp com.hakios.varstore.plist root/LaunchDaemons/
+echo "Darwin on hakios: image built $(date '+%Y-%m-%d %H:%M')" > root/etc/motd
 # 300000 bytes, byte i = (i*31 + (i>>8)) & 0xff; init verifies it through read() and mmap()
 python3 -c "import sys; sys.stdout.buffer.write(bytes((i*31 + (i>>8)) & 0xff for i in range(300000)))" > root/share/pattern.bin
 # EXTRA_SHARE: whole directories of data for a one-off diagnostic, each under its own name. Here and
@@ -195,22 +187,9 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 	if [ -z "$PREBUILT" ]; then
 		# ordinary dynamically linked programs of our own, built against the iOS SDK
 		$DYN -o obj/hello_dyn src/hello_dyn.c
-		if [ "${BLUETOOTH-0}" = 1 ]; then
-			$DYN -fblocks -framework CoreFoundation -framework IOKit -o obj/umi_bluetool src/umi_bluetool.c
-			$DYN -dynamiclib -install_name /hackios/lib/libhackios-bluetooth.dylib -framework CoreFoundation -framework IOKit -o obj/libhackios-bluetooth.dylib src/inject_bluetooth.c
-		fi
 		$DYN -framework CoreFoundation -o obj/svc_test src/svc_test.c
 		$DYN -Wno-four-char-constants -framework CoreFoundation -framework IOSurface -o obj/surf_test src/surf_test.c
-		# an IOSurface of ours imported as a texture of the GPU, written through one view
-		# and read through the other (src/drawable_test.c): the check that tells a texture
-		# over the surface's own pages from a texture over a copy of them. It goes through
-		# src/hkdrawable.m, which is the bridge under test, and dlopens the compiler
-		# library the way the driver does.
-		$DYN -Wno-four-char-constants -framework CoreFoundation -framework IOSurface \
-			-framework IOKit -o obj/drawable_test src/drawable_test.c src/hkdrawable.m
 		$DYN -o obj/rwtouch src/rwtouch.c
-		# the kernel's thermal pressure passed on to iOS (src/thermald.c)
-		$DYN -o obj/thermald src/thermald.c
 		$DYN -framework CoreFoundation -framework AudioToolbox -framework AVFoundation -lobjc -o obj/sound_test src/sound_test.c
 		$DYN -framework CoreFoundation -lMobileGestalt -o obj/mg_test src/mg_test.c
 		$DYN -framework CoreFoundation -framework AVFoundation -lobjc -o obj/torch_test src/torch_test.c
@@ -228,59 +207,6 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 		$DYN -fobjc-arc -Wno-deprecated-declarations -framework Foundation -framework CoreGraphics \
 			-framework CoreImage -framework IOKit -framework Metal -framework OpenGLES \
 			-lMobileGestalt -o obj/metal_test src/metal_test.m
-		# the first question of subsystem (2): can a subclass of the private _MTLDevice be
-		# made here, and what does its initWithAcceleratorPort: do (src/metal_dev.m). No ARC:
-		# it calls objc_msgSend by hand and allocates a class at runtime.
-		$DYN -framework Foundation -framework IOKit -framework Metal -lobjc \
-			-o obj/metal_dev src/metal_dev.m
-		# a device object that implements nothing and logs what Apple's own init asks it
-		# for (src/metal_stubdev.m); same reasons for no ARC and for -lobjc
-		$DYN -framework Foundation -framework IOKit -framework Metal -lobjc \
-			-o obj/metal_stubdev src/metal_stubdev.m
-		# the device object of the driver itself, as the library a bundle would hold
-		# (src/hkmetal.m). It links against Metal's private _OBJC_CLASS_$__MTLDevice,
-		# which is bindable because IOGPU.framework imports the same symbol; -lobjc for
-		# class_addProtocol and no ARC because it calls objc_msgSend by hand.
-		# (with src/hkdrawable.m beside it: the IOSurface a CAMetalLayer hands a
-		# device, as a texture. A file of its own because it answers CoreAnimation and
-		# not Metal, and the two meet in one method -- docs/metal.md 10.46.)
-		$DYN -dynamiclib -install_name /hackios/lib/libhackiosmetal.dylib \
-			-framework Foundation -framework IOKit -framework Metal -lobjc \
-			-o obj/libhackiosmetal.dylib src/hkmetal.m src/hkdrawable.m
-		# and the program that walks Metal's own steps 4 and 5 against it
-		$DYN -framework Foundation -framework IOKit -framework Metal -lobjc \
-			-o obj/metal_drv_test src/metal_drv_test.m
-		# An application of this port's own: a window, a CAMetalLayer, a drawable and a
-		# triangle in it (src/triangle_app.m). UIKit because that is the point -- every
-		# Metal result so far is from inside one of Apple's daemons, and this is an
-		# ordinary bundle in /Applications that SpringBoard launches; IOSurface because
-		# it reads the drawable's own surface back to say whether the texture WAS those
-		# pages; no ARC and -lobjc because it sends -initWithAcceleratorPort: by hand,
-		# the way src/metal_drv_test.m does. The bundle is assembled further down, where
-		# a PREBUILT tree can assemble it too.
-		# (signed, if ldid is there, for the entitlements an application has and a
-		# /hackios/bin program does not: see src/triangle_app.entitlements, which says
-		# why none of them is needed to RUN. Signed here rather than in the bundle, so
-		# that the copy in /hackios/bin carries the same signature.)
-		$DYN -framework Foundation -framework UIKit -framework QuartzCore \
-			-framework Metal -framework IOSurface -framework IOKit -lobjc \
-			-o obj/HKTriangle src/triangle_app.m &&
-			{ ${LDID:-ldid} -Ssrc/triangle_app.entitlements obj/HKTriangle 2>/dev/null ||
-			  echo "build.sh: no ldid: HKTriangle is unsigned, which still runs (AMFI here accepts everything) but holds no entitlements"; }
-		# what the device ANSWERS when an application asks what it supports
-		# (src/metal_caps.m). It takes the device from MTLCreateSystemDefaultDevice() so
-		# that the ivars behind Apple's inherited answers are filled by the registration
-		# Metal itself ran; no ARC and -lobjc because most of what it asks is MTLDeviceSPI,
-		# whose header this port has not got, so every send is an objc_msgSend by hand. MetalFX
-		# because the acceptance test's own capability gate is +supportsDevice: on its two
-		# scaler descriptors, and that gate can be measured without the game.
-		$DYN -framework Foundation -framework IOKit -framework Metal -lobjc \
-			-framework MetalFX -o obj/metal_caps src/metal_caps.m
-		# ... and the switch that steps 1 and 2 need: it puts MetalPluginName and
-		# MetalPluginClassName on the IOAcceleratorES service (src/metal_props.c). IOKit and
-		# CoreFoundation only -- a program that flips this switch must not itself ask Metal,
-		# whose conditions are asserts. It needs the kernel booted with metal=1.
-		$DYN -framework CoreFoundation -framework IOKit -o obj/metal_props src/metal_props.c
 		$DYN -o obj/shm_test src/shm_test.c
 		$DYN -o obj/apfs_mmap_test src/apfs_mmap_test.c
 		$DYN -o obj/vol_ls src/vol_ls.c
@@ -304,61 +230,42 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 			{ ${LDID:-ldid} -Ssrc/wifipw_test.entitlements obj/wifipw_test 2>/dev/null ||
 			  echo "build.sh: no ldid: wifipw_test is unsigned, and the keychain will refuse it (-34018)"; }
 		# our library for inside stock iOS programs (the jobs in INJECT are started with it)
-		$DYN -dynamiclib -install_name /hackios/lib/libhackios.dylib -framework CoreFoundation -framework IOKit -lobjc \
-			-o obj/libhackios.dylib src/inject.c
-		$DYN -dynamiclib -install_name /hackios/lib/libhackios-sb.dylib -framework CoreFoundation -framework IOKit -lobjc \
-			-o obj/libhackios-sb.dylib src/inject_sb.c
+		$DYN -dynamiclib -install_name /redwood/lib/libhakios.dylib -framework CoreFoundation -framework IOKit -lobjc \
+			-o obj/libhakios.dylib src/inject.c
+		$DYN -dynamiclib -install_name /redwood/lib/libhakios.sb.dylib -framework CoreFoundation -framework IOKit -lobjc \
+			-o obj/libhakios.sb.dylib src/inject_sb.c
 		# ... the tweak loader of the package manager's prefix (src/inject_tweaks.c): it goes into a
 		# program either as the one library the kernel inserts or opened by a library of ours
-		$DYN -dynamiclib -install_name /hackios/lib/libhackios-tweaks.dylib -framework CoreFoundation -lobjc \
-			-o obj/libhackios-tweaks.dylib src/inject_tweaks.c
+		$DYN -dynamiclib -install_name /redwood/lib/libhakios.tweaks.dylib -framework CoreFoundation -lobjc \
+			-o obj/libhakios.tweaks.dylib src/inject_tweaks.c
 		# ... and inside an application, to say what killed it (src/inject_app.c)
-		$DYN -dynamiclib -install_name /hackios/lib/libhackios-app.dylib -lobjc \
-			-o obj/libhackios-app.dylib src/inject_app.c
-		$DYN -O2 -dynamiclib -install_name /hackios/lib/libhackios-media.dylib -framework CoreFoundation -framework CoreMedia \
+		$DYN -dynamiclib -install_name /redwood/lib/libhakios.app.dylib -lobjc \
+			-o obj/libhakios.app.dylib src/inject_app.c
+		$DYN -O2 -dynamiclib -install_name /redwood/lib/libhakios.media.dylib -framework CoreFoundation -framework CoreMedia \
 			-framework CoreVideo -framework IOSurface -lobjc \
-			-o obj/libhackios-media.dylib src/inject_media.c src/camera_device.c src/camera_isp.c
+			-o obj/libhakios.media.dylib src/inject_media.c src/camera_device.c src/camera_isp.c
 		# ... and inside appstored (STOREFRONT=1), which answers with a storefront and watches for a bag
 		# request being built (src/inject_store.c)
 		# (-lc++abi for __cxa_throw: every C++ exception thrown in the process is watched, which is how
 		#  the jetpack parser's rejections are seen -- a throw somebody catches logs nothing of itself)
-		$DYN -O2 -dynamiclib -install_name /hackios/lib/libhackios-store.dylib -framework CoreFoundation -lobjc \
-			-lc++abi -o obj/libhackios-store.dylib src/inject_store.c
+		$DYN -O2 -dynamiclib -install_name /redwood/lib/libhakios.store.dylib -framework CoreFoundation -lobjc \
+			-lc++abi -o obj/libhakios.store.dylib src/inject_store.c
 		# ... and inside fairplayd.H2, which starts and leaves at once: what it looks for, and where it
 		# gives up (src/inject_fairplay.c; watches only, replaces nothing)
-		$DYN -O2 -dynamiclib -install_name /hackios/lib/libhackios-fairplay.dylib -framework CoreFoundation \
+		$DYN -O2 -dynamiclib -install_name /redwood/lib/libhakios.fairplay.dylib -framework CoreFoundation \
 			-framework IOKit -framework Security -lMobileGestalt \
-			-o obj/libhackios-fairplay.dylib src/inject_fairplay.c
+			-o obj/libhakios.fairplay.dylib src/inject_fairplay.c
 		# the output device of the audio server: a plug-in for CoreAudio's HAL
-		$DYN -bundle -framework CoreFoundation -o obj/HKAudio src/audio_plugin.c
-		# The same driver again as a loadable bundle, which is the form Metal's own
-		# discovery wants: step 3 builds the path /System/Library/Extensions/<name>.bundle
-		# and opens it with NSBundle, and -[NSBundle classNamed:] then tests that the class
-		# came out of that bundle (0x1811e0dac). The dylib above cannot serve as the
-		# executable: dyld uniques images by install_name, so a process that already has
-		# /hackios/lib/libhackiosmetal.dylib would bind the bundle to it and fail that test.
-		$DYN -bundle -framework Foundation -framework IOKit -framework Metal -lobjc \
-			-o obj/HKMetal src/hkmetal.m src/hkdrawable.m
+		$DYN -bundle -framework CoreFoundation -o obj/HakiosAudio src/audio_plugin.c
 		if [ -n "$GL" ]; then
 			# the OpenGL ES library, and the table of functions that hands CoreAnimation's calls to it
 			# (Mesa says beside the library what it was built from: one from other patches is built again)
 			M=../xnu-deps/build/mesa/out
-			[ "$(cat $M/built-from 2>/dev/null)" = "$(cat ../tools/mesa/*.patch ../tools/mesa/hackios-drm/* | sha256sum)" ] ||
+			[ "$(cat $M/built-from 2>/dev/null)" = "$(cat ../tools/mesa/*.patch ../tools/mesa/hakios-drm/* | sha256sum)" ] ||
 				../tools/mk-mesa.sh
-			# ... and the compiler library separately, because the hash above covers the PATCHES
-			# and the library is built from tools/mesa/air/, which they do not mention. Two boots
-			# of 22 October carried a libhackiosair.dylib three hours older than the driver beside
-			# it while rwa_render_shape had grown IN THE MIDDLE -- the image was the mismatch the
-			# contract warns about, and nothing in it said so. Silence is what made it expensive:
-			# the library is stripped, so the driver found the symbols it wanted and read a stride
-			# where a pixel format was.
-			[ "$(cat $M/built-from-air 2>/dev/null)" = "$(cat ../tools/mesa/air/* | sha256sum)" ] || {
-				echo "build.sh: tools/mesa/air/ has changed since libhackiosair.dylib was built"
-				AIR=1 ../tools/mk-mesa.sh
-			}
 			./mkeagl.py src/eagl_slots.txt $M/gl.xml $M/exported-gl.txt src/eagl.c > obj/eagl_gen.h
-			$DYN -dynamiclib -install_name /hackios/lib/libhackios-gl.dylib -Iobj -framework CoreFoundation \
-				-framework IOKit -framework IOSurface -lobjc $M/libOSMesa.8.dylib -o obj/libhackios-gl.dylib \
+			$DYN -dynamiclib -install_name /redwood/lib/libhakios.gl.dylib -Iobj -framework CoreFoundation \
+				-framework IOKit -framework IOSurface -lobjc $M/libOSMesa.8.dylib -o obj/libhakios.gl.dylib \
 				src/eagl.c src/gl_osmesa.c
 			$DYN -framework CoreFoundation -framework IOKit $M/libOSMesa.8.dylib -o obj/gl_test src/gl_test.c
 			# ... and what this GPU makes of an unsigned integer turned into a float (src/u2f_test.c)
@@ -370,26 +277,12 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 			# entry points this library exports; AIR=1 tools/mk-mesa.sh makes
 			# it, and it is copied in when it is there.
 			[ -f $M/air_run ] && cp $M/air_run obj/air_run
-			# The compiler the Metal driver asks for: AIR in, a dispatch on the
-			# Adreno out (tools/mesa/air/air_metal.h). It is copied whether or not
-			# GL is wanted, because src/hkmetal.m dlopens it by that path --
-			# and its absence is a sentence the driver prints, not a crash.
-			[ -f $M/libhackiosair.dylib ] && cp $M/libhackiosair.dylib obj/
 		fi
 	fi
-	# The GPU diagnostic is absent from some prebuilt program sets.
 	cp obj/hello_dyn obj/svc_test obj/surf_test obj/rwtouch obj/mg_test root/bin/
-	if [ "${BLUETOOTH-0}" = 1 ]; then cp obj/umi_bluetool root/bin/; fi
-	[ ! -f obj/drawable_test ] || cp obj/drawable_test root/bin/
 	[ -f obj/cpu_test ] && cp obj/cpu_test root/bin/        # (a prebuilt/ from before this program has none)
-	[ -f obj/thermald ] && cp obj/thermald root/bin/
 	[ -f obj/cow_test ] && cp obj/cow_test root/bin/
 	[ -f obj/cg_test ] && cp obj/cg_test root/bin/
-	[ -f obj/metal_dev ] && cp obj/metal_dev root/bin/
-	[ -f obj/metal_stubdev ] && cp obj/metal_stubdev root/bin/
-	[ -f obj/metal_drv_test ] && cp obj/metal_drv_test root/bin/
-	[ -f obj/metal_caps ] && cp obj/metal_caps root/bin/
-	[ -f obj/metal_props ] && cp obj/metal_props root/bin/
 	[ -f obj/shm_test ] && cp obj/shm_test root/bin/
 	[ -f obj/apfs_mmap_test ] && cp obj/apfs_mmap_test root/bin/
 	[ -f obj/vol_ls ] && cp obj/vol_ls root/bin/
@@ -406,114 +299,49 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 	[ -f obj/camera_test ] && cp obj/camera_test root/bin/
 	[ -f obj/camera_avtest ] && cp obj/camera_avtest root/bin/
 	[ -f obj/record_test ] && cp obj/record_test root/bin/
-	# The same binary as the application below, under /hackios/bin, for its --layer mode:
-	# a CAMetalLayer with no window and no UIKit, driven once. That mode cannot say whether
-	# a frame reaches the panel, and it answers the two questions that come before it -- does
-	# the driver work outside Apple's daemons, and does nextDrawable give a texture -- in a
-	# process whose output is certainly in the log, because the job list runs it. An
-	# application launched by SpringBoard is a process this file cannot promise that about.
-	[ -f obj/HKTriangle ] && cp obj/HKTriangle root/bin/triangle_app
 	for f in $EXTRA; do cp "$f" root/bin/; done
-	#
-	# ... and the application bundle itself, staged in obj/ and copied into
-	# sysroot/Applications by the system image below.
-	#
-	# A PLAIN DIRECTORY OF REAL FILES, and that is not a style: a bundle made of symbolic
-	# links is refused by LaunchServices ("Unable to register"), and the registrar that
-	# walks /Applications at boot passes over mount points. So the icons are generated here
-	# rather than linked from anywhere, and the plist and the executable are copied.
-	if [ -f obj/HKTriangle ]; then
-		rm -rf obj/HKTriangle.app
-		mkdir -p obj/HKTriangle.app
-		cp obj/HKTriangle obj/HKTriangle.app/
-		cp src/triangle_app.plist obj/HKTriangle.app/Info.plist
-		printf 'APPL????' > obj/HKTriangle.app/PkgInfo
-		# The icon is the picture the application draws: an orange triangle over the
-		# lower left half of a blue square, by the same rule the shader covers a pixel
-		# by ((x+0.5)/w < (y+0.5)/h). So the home screen states the prediction, and an
-		# icon that comes out with its halves the other way round says the arithmetic in
-		# this one line disagrees with the arithmetic in src/triangle_app.m. No alpha
-		# channel: iOS masks an icon itself and an icon with alpha comes out wrong.
-		python3 - obj/HKTriangle.app <<-'PY'
-		import struct, sys, zlib
-		out = sys.argv[1]
-		for size, scale in ((120, 2), (180, 3)):
-		    rows = bytearray()
-		    for y in range(size):
-		        rows.append(0)                        # PNG filter type: none
-		        for x in range(size):
-		            inside = (2 * x + 1) * size < (2 * y + 1) * size
-		            rows += bytes((255, 128, 0) if inside else (0, 0, 255))
-		    def chunk(kind, body):
-		        return (struct.pack('>I', len(body)) + kind + body +
-		                struct.pack('>I', zlib.crc32(kind + body)))
-		    png = (b'\x89PNG\r\n\x1a\n' +
-		           chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 2, 0, 0, 0)) +
-		           chunk(b'IDAT', zlib.compress(bytes(rows), 9)) + chunk(b'IEND', b''))
-		    open('%s/AppIcon60x60@%dx.png' % (out, scale), 'wb').write(png)
-		PY
-		# Unsigned, which is enough: AMFI in this kernel accepts every signature and
-		# holds no trust cache (libkern/amfi/miniamfi.c), and the kernel is built without
-		# config_enforce_signed_code. What a signature would still buy is entitlements,
-		# and this application asks the system for nothing that needs one.
-		echo "  HKTriangle.app: $(du -sk obj/HKTriangle.app | cut -f1) KB for /Applications"
-	fi
 	# /dev and /private/var exist so that this image can also be the root on its own:
 	# devfs is mounted on /dev, and init puts a ramfs on /private/var
 	mkdir -p root/dev root/private/var
 	mkdir -p root/lib
-	cp obj/libhackios.dylib obj/libhackios-sb.dylib root/lib/
-	[ "${BLUETOOTH-0}" != 1 ] || cp obj/libhackios-bluetooth.dylib root/lib/
-	[ -f obj/libhackios-media.dylib ] && cp obj/libhackios-media.dylib root/lib/     # (as with cpu_test)
-	[ -f obj/libhackios-store.dylib ] && cp obj/libhackios-store.dylib root/lib/
-	[ -f obj/libhackios-fairplay.dylib ] && cp obj/libhackios-fairplay.dylib root/lib/
-	[ -f obj/libhackios-app.dylib ] && cp obj/libhackios-app.dylib root/lib/
-	[ -f obj/libhackios-tweaks.dylib ] && cp obj/libhackios-tweaks.dylib root/lib/
-	[ -f obj/libhackiosmetal.dylib ] && cp obj/libhackiosmetal.dylib root/lib/
-	[ -f obj/libhackiosair.dylib ] && cp obj/libhackiosair.dylib root/lib/
-	if [ -f obj/HKAudio ]; then
-		mkdir -p root/lib/HKAudio.driver
-		cp obj/HKAudio root/lib/HKAudio.driver/
-		cp src/audio_plugin.plist root/lib/HKAudio.driver/Info.plist
-	fi
-	# The Metal plug-in bundle, flat and unsigned -- which is enough here: AMFI in this
-	# kernel is a stand-in that accepts every signature (libkern/amfi/miniamfi.c), and
-	# Apple's own code already loads the unsigned HKAudio.driver above. The system image
-	# now links this bundle into /System/Library/Extensions as well (see below), but the two
-	# properties that would make Metal look for it are still nobody's by default: only a boot
-	# with metal=1 lets a process put them on the service (docs/metal.md 10.31), because 10.14
-	# measured what a half-made device does to every process that asks Metal for one.
-	if [ -f obj/HKMetal ]; then
-		mkdir -p root/lib/HKMetal.bundle
-		cp obj/HKMetal root/lib/HKMetal.bundle/
-		cp src/metal_plugin.plist root/lib/HKMetal.bundle/Info.plist
+	cp obj/libhakios.dylib obj/libhakios.sb.dylib root/lib/
+	[ -f obj/libhakios.media.dylib ] && cp obj/libhakios.media.dylib root/lib/     # (as with cpu_test)
+	[ -f obj/libhakios.store.dylib ] && cp obj/libhakios.store.dylib root/lib/
+	[ -f obj/libhakios.fairplay.dylib ] && cp obj/libhakios.fairplay.dylib root/lib/
+	[ -f obj/libhakios.app.dylib ] && cp obj/libhakios.app.dylib root/lib/
+	[ -f obj/libhakios.tweaks.dylib ] && cp obj/libhakios.tweaks.dylib root/lib/
+	if [ -f obj/HakiosAudio ]; then
+		mkdir -p root/lib/HakiosAudio.driver
+		cp obj/HakiosAudio root/lib/HakiosAudio.driver/
+		cp src/audio_plugin.plist root/lib/HakiosAudio.driver/Info.plist
 	fi
 	if [ -n "$GL" ]; then
 		cp obj/libOSMesa.8.dylib root/lib/
 		cp obj/gl_test root/bin/
 		if [ -f obj/u2f_test ]; then cp obj/u2f_test root/bin/; fi   # an "if": see the inject.conf loop below
 		[ -f obj/air_run ] && cp obj/air_run root/bin/
-		[ "$GL" = test ] || cp obj/libhackios-gl.dylib root/lib/
+		[ "$GL" = test ] || cp obj/libhakios.gl.dylib root/lib/
 	fi
 	# a program is not started with a library that is not there: it would not start at all
 	echo "$INJECT" | while read -r library names; do
-		# a /hackios/lib library only if it was actually built; any other path (e.g. a tweak loader
+		# a /redwood/lib library only if it was actually built; any other path (e.g. a tweak loader
 		# in /var/jb) as it is, since it lives on the prefix and is there at run time
 		case "$library" in
 		"") ;;
 		# an "if" and not "&& echo": a last line whose library is absent would make the loop,
 		# and with it the pipeline and the whole build under set -e, fail -- which is what a tree
 		# with only prebuilt/userland in it does, since not every injection library is shipped there
-		/hackios/lib/*) if [ -f "root/lib/${library#/hackios/lib/}" ]; then echo "$library $names"; fi ;;
+		/redwood/lib/*) if [ -f "root/lib/${library#/redwood/lib/}" ]; then echo "$library $names"; fi ;;
 		*) echo "$library $names" ;;
 		esac
 	done > root/etc/inject.conf
 	cp $IOS/var.skel root/etc/var.skel              # the directories init creates in /private/var
 	# time zones: the template's links go in a circle until the time zone daemon has run (/usr/share/zoneinfo
 	# points back into /var); point them at the data that ships with the system, and use this machine's zone
-	zone=$(timedatectl show -p Timezone --value 2>/dev/null); zone=${zone:-UTC}
-	sed -i -e 's|^l\t/usr/share/zoneinfo\t/private/var/db/timezone/zoneinfo$|l\t/usr/share/zoneinfo.default\t/private/var/db/timezone/zoneinfo|' \
+	zone=$(timedatectl show -p Timezone --value 2>/dev/null || true); zone=${zone:-UTC}
+	sed -i.bak -e 's|^l\t/usr/share/zoneinfo\t/private/var/db/timezone/zoneinfo$|l\t/usr/share/zoneinfo.default\t/private/var/db/timezone/zoneinfo|' \
 		-e "s|^l\t/var/db/timezone/zoneinfo/[^\t]*\t/private/var/db/timezone/localtime\$|l\t/var/db/timezone/zoneinfo/$zone\t/private/var/db/timezone/localtime|" root/etc/var.skel
+	rm -f root/etc/var.skel.bak
 	# ... and the files of ours it puts there (var/): those under mobile/ belong to the user mobile
 	cp -r var root/var
 	(cd var && find . -type f | sed 's|^\./||' | sort) | while read -r f; do
@@ -525,8 +353,6 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 	# the prefix with the root on the flash, downloads every package and index there, and without it each
 	# download ended in "No such file or directory"
 	printf 'd\t700\t501\t501\t/private/var/mobile/tmp\n' >> root/etc/var.skel
-	# the local Files provider's root; /private/var is a fresh ramfs, so make it on every boot.
-	printf 'd\t755\t501\t501\t/private/var/mobile/Documents\n' >> root/etc/var.skel
 	# A key of ours for root, when there is one: ssh/authorized_keys, never in the repository (like
 	# fw-*). dropbear from the package manager's prefix reads it and lets us in over the phone's
 	# Wi-Fi, which saves rebuilding an image for every question one wants to ask a running iOS. It
@@ -559,19 +385,19 @@ if [ -d $IOS/rootfs/usr/lib ]; then
 	# the system image, so mkjobs.py judges "is this daemon's program there" by the listing of the volume
 	# and not by what select-system.py extracted here (--root-volume; seven jobs turn on the difference,
 	# fairplayd among them).
-	cp com.hackios.demo.plist com.hackios.wifi.plist com.hackios.thermald.plist root/LaunchDaemons/
+	cp com.hakios.demo.plist com.hakios.wifi.plist root/LaunchDaemons/
 	VOLUME=""
 	[ -n "$FLASHBOOT" ] && [ -f $IOS/rootfs.slt ] && VOLUME="--root-volume $IOS/rootfs.slt"
 	[ -n "$IOS_JOBS" ] && OSLOG=${OSLOG-com.apple.backboardd} ./mkjobs.py ${REST:+--rest} $VOLUME $IOS/rootfs root/LaunchDaemons $IOS_JOBS
 fi
 # firmware of the phone's own hardware, where somebody has pulled it from the phone's Android into ../fw-gpu
-# (it is the vendor's and never in the repository): the kernel's GPU bring-up, bsd/dev/hk_adreno.c, finds it in fw/
+# (it is the vendor's and never in the repository): the kernel's GPU bring-up, bsd/dev/hakios.adreno.c, finds it in fw/
 if [ -d ../fw-gpu ]; then
 	mkdir -p root/fw
 	cp ../fw-gpu/* root/fw/
 fi
 # ... and the image of the Wi-Fi DSP, from /vendor/firmware_mnt/image of the same Android into ../fw-wifi
-# (bsd/dev/hk_wifi.c; 7.6 MB), with what the radio's firmware is sent once it runs: this phone's
+# (bsd/dev/hakios.wifi.c; 7.6 MB), with what the radio's firmware is sent once it runs: this phone's
 # board data and the regulatory database (image/qca6750 there; 60 and 24 KB)
 if [ -f ../fw-wifi/wpss.mdt ]; then
 	mkdir -p root/fw
@@ -585,97 +411,36 @@ if [ -f ../fw-wifi/wpss.mdt ]; then
 	# SHARE=1: leave it out, for an image that is going to somebody else -- it is a passphrase
 	if [ -z "$SHARE" ] && [ -f ../fw-wifi/network ]; then install -m 0600 ../fw-wifi/network root/fw/network; fi
 fi
-# UMI has a QCA6390 CNSS/PCIe radio, not Redwood's WCN6750/WPSS device. Keep its firmware
-# under its vendor directory so the future CNSS path can request the expected names.
-umi_firmware() {
-	[ "${DEVICE:-}" = umi ] || return 0
-	local destination=$1 f
-	mkdir -p "$destination"
-	if [ -d ../fw-wifi/qca6390 ]; then
-		mkdir -p "$destination/qca6390"
-		for f in ../fw-wifi/qca6390/*; do
-			[ -f "$f" ] || continue
-			install -m 0644 "$f" "$destination/qca6390/"
-		done
-	fi
-	if [ -f ../fw-wifi/WCNSS_qcom_cfg.ini ]; then
-		mkdir -p "$destination/qca6390"
-		install -m 0644 ../fw-wifi/WCNSS_qcom_cfg.ini "$destination/qca6390/"
-	fi
-	for f in aw8697_haptic.bin aw8697_haptic_a.bin aw8697_rtp_1.bin; do
-		[ -f "../fw-haptic/$f" ] || continue
-		install -m 0644 "../fw-haptic/$f" "$destination/"
-	done
-	if compgen -G '../fw-audio/cs35l41/*' >/dev/null; then
-		mkdir -p "$destination/cs35l41"
-		for f in ../fw-audio/cs35l41/*; do
-			[ -f "$f" ] || continue
-			install -m 0644 "$f" "$destination/cs35l41/"
-		done
-	fi
-	# Hastings Bluetooth uses its own firmware partition, separate from Wi-Fi.
-	if [ -d ../fw-bluetooth ]; then
-		mkdir -p "$destination/qca6390-bt"
-		for f in htbtfw10.tlv htbtfw20.tlv htnv10.bin htnv20.bin; do
-			[ -f "../fw-bluetooth/$f" ] || continue
-			install -m 0644 "../fw-bluetooth/$f" "$destination/qca6390-bt/"
-		done
-	fi
-	if [ -d ../fw-audio/acdbdata ]; then
-		mkdir -p "$destination/acdbdata"
-		cp -a ../fw-audio/acdbdata/. "$destination/acdbdata/"
-	fi
-}
-
-# Include UMI assets in the small image used before iOS's root is mounted. They remain local
-# firmware inputs and are never committed to either source repository.
-umi_firmware root/fw
-
-# Segment names are device-specific. UMI's signed MDT references adsp.b00 through adsp.b18,
-# including b00 and b01; Redwood's image starts at b02 and keeps its existing selection.
-install_adsp_firmware() {
-	local destination=$1 f
-	[ -f ../fw-audio/adsp.mdt ] || return 0
-	mkdir -p "$destination"
-	install -m 0644 ../fw-audio/adsp.mdt "$destination/"
-	if [ "${DEVICE:-}" = umi ]; then
-		for f in ../fw-audio/adsp.b[0-9][0-9]; do
-			[ -f "$f" ] || continue
-			install -m 0644 "$f" "$destination/"
-		done
-	else
-		install -m 0644 ../fw-audio/adsp.b0[2-9] ../fw-audio/adsp.b[1-9][0-9] "$destination/"
-	fi
-}
 # ... and the vibration motor's waveforms, the phone's /vendor/firmware/aw8697_haptic.bin, from ../fw-haptic
-# (bsd/dev/hk_haptic.c, haptic=3; 3.6 KB, the vendor's and not in the repository either)
+# (bsd/dev/hakios.haptic.c, haptic=3; 3.6 KB, the vendor's and not in the repository either)
 if [ -f ../fw-haptic/aw8697_haptic.bin ]; then
 	mkdir -p root/fw
 	install -m 0644 ../fw-haptic/aw8697_haptic.bin root/fw/
 fi
-# ... and the cameras' register tables (bsd/dev/hk_camera.c, cam=2 and up), made by tools/camsensor.py out of
+# ... and the cameras' register tables (bsd/dev/hakios.camera.c, cam=2 and up), made by tools/camsensor.py out of
 # the sensors' module files of Android's camera stack, the phone's /vendor/lib64/camera/com.qti.sensormodule.
-# hk_<maker>_<sensor>_<camera>.bin, in ../fw-camera (the vendor's: neither they nor the tables are in the
+# hakios_<maker>_<sensor>_<camera>.bin, in ../fw-camera (the vendor's: neither they nor the tables are in the
 # repository): camera-<sensor>.tab
-for module in ../fw-camera/com.qti.sensormodule.hk_*.bin; do
+for module in ../fw-camera/com.qti.sensormodule.hakios_*.bin; do
 	[ -f "$module" ] || continue
-	sensor=$(basename "$module" .bin | sed 's/^com\.qti\.sensormodule\.hk_[a-z]*_\([a-z0-9]*\)_.*/\1/')
+	sensor=$(basename "$module" .bin | sed 's/^com\.qti\.sensormodule\.hakios_[a-z]*_\([a-z0-9]*\)_.*/\1/')
 	mkdir -p root/fw
 	../tools/camsensor.py "$module" "root/fw/camera-$sensor.tab" >/dev/null
 done
-# ... and their colour tuning (libhackios-media's processor, src/camera_isp.c), made by tools/camtuning.py out of the
-# cameras' tuning files beside them, com.qti.tuned.hk_<maker>_<sensor>_<camera>.bin: camera-<sensor>.isp
-for tuned in ../fw-camera/com.qti.tuned.hk_*.bin; do
+# ... and their colour tuning (libhakios.media's processor, src/camera_isp.c), made by tools/camtuning.py out of the
+# cameras' tuning files beside them, com.qti.tuned.hakios_<maker>_<sensor>_<camera>.bin: camera-<sensor>.isp
+for tuned in ../fw-camera/com.qti.tuned.hakios_*.bin; do
 	[ -f "$tuned" ] || continue
-	sensor=$(basename "$tuned" .bin | sed 's/^com\.qti\.tuned\.hk_[a-z]*_\([a-z0-9]*\)_.*/\1/')
+	sensor=$(basename "$tuned" .bin | sed 's/^com\.qti\.tuned\.hakios_[a-z]*_\([a-z0-9]*\)_.*/\1/')
 	mkdir -p root/fw
 	../tools/camtuning.py "$tuned" "root/fw/camera-$sensor.isp" >/dev/null
 done
-# ... and with ADSP=1 the image of the audio DSP, from the same place into ../fw-audio (bsd/dev/hk_adsp.c):
+# ... and with ADSP=1 the image of the audio DSP, from the same place into ../fw-audio (bsd/dev/hakios.adsp.c):
 # adsp.mdt and adsp.b02 to adsp.b36, 20 MB. Only when asked for: beside GL=1 the payload would be more than the 64 MB
 # the loader takes.
 if [ -n "$ADSP" ] && [ -f ../fw-audio/adsp.mdt ]; then
-	install_adsp_firmware root/fw
+	mkdir -p root/fw
+	install -m 0644 ../fw-audio/adsp.mdt ../fw-audio/adsp.b0[2-9] ../fw-audio/adsp.b[1-9][0-9] root/fw/
 fi
 # Firmware that is not there is otherwise silent at build time and speaks only much later, deep in a
 # device log -- "adreno: THE GPU IS NOT STARTED: the small image has no fw/a660_gmu.bin" cost a phone
@@ -707,17 +472,17 @@ mkdir -p root/empty root/xpc root/hal
 for f in extensions.plist extensions.plist.sig; do
 	[ -f $IOS/rootfs/System/Library/xpc/$f ] && cp $IOS/rootfs/System/Library/xpc/$f root/xpc/
 done
-[ -d root/lib/HKAudio.driver ] && ln -s /hackios/lib/HKAudio.driver root/hal/HKAudio.driver
+[ -d root/lib/HakiosAudio.driver ] && ln -s /redwood/lib/HakiosAudio.driver root/hal/HakiosAudio.driver
 # the image: zlib where it saves room (a small file whole in its attribute, as Apple keeps them); fw/
-# as it is, which the kernel's drivers use where it lies in memory (bsd/dev/hk_image.c)
-python3 ../tools/apfs/mkapfs.py -z --plain fw -o root.apfs hackios=root | tail -1
-[ -z "$CHECK" ] || ../tools/apfs/check-image.sh root.apfs hackios=root
+# as it is, which the kernel's drivers use where it lies in memory (bsd/dev/hakios.image.c)
+python3 ../tools/apfs/mkapfs.py -z --plain fw -o root.apfs redwood=root | tail -1
+[ -z "$CHECK" ] || ../tools/apfs/check-image.sh root.apfs redwood=root
 
 # --- the RAM part of a boot off the flash: FLASHBOOT=1 -> flashboot.apfs --------------------------------
 # With the iOS volume on the phone's flash as the root, all that has to come from RAM is what is not
 # on it -- the two cryptexes, OS with the dyld shared cache and App -- and what starts the boot: three
 # APFS containers back to back in the one resident image. The first, the boot volume, is the root the
-# kernel starts from (rd=md0): stage0 as /sbin/launchd mounts the small image on /hackios and runs its
+# kernel starts from (rd=md0): stage0 as /sbin/launchd mounts the small image on /redwood and runs its
 # init, which with boot-arg root_apfs=DEV mounts the volume on /flash, makes it the root and moves the
 # boot volume to the volume's /private/preboot, then mounts the second container -- the OS cryptex -- on
 # the boot volume's empty Cryptexes/OS and the third -- Apple's App cryptex as it is -- on Cryptexes/App:
@@ -731,7 +496,7 @@ python3 ../tools/apfs/mkapfs.py -z --plain fw -o root.apfs hackios=root | tail -
 # them from there, the same containers 1 and 2 of the root's own device.
 if [ -n "$FLASHBOOT" ] && [ -f $CACHE/dyld_shared_cache_arm64 ]; then
 	rm -rf flashboot flashboot.os
-	mkdir -p flashboot/sbin flashboot/hackios flashboot/dev flashboot/flash flashboot/Cryptexes/OS flashboot/Cryptexes/App
+	mkdir -p flashboot/sbin flashboot/redwood flashboot/dev flashboot/flash flashboot/Cryptexes/OS flashboot/Cryptexes/App
 	cp obj/stage0 flashboot/sbin/launchd
 	# the OS cryptex, and the shared cache in it, only where this image will carry it:
 	# with CRYPTEXES=flash the cryptexes are read from the phone's flash and this tree is
@@ -751,9 +516,9 @@ if [ -n "$FLASHBOOT" ] && [ -f $CACHE/dyld_shared_cache_arm64 ]; then
 	# reads the firmware as soon as there is a root (this image, adsp=1), the configuration maybe later -- by then
 	# from the iOS volume's /fw, which src/init.c (flash_root) binds to this
 	if [ -f ../fw-audio/adsp.mdt ]; then
-		install_adsp_firmware flashboot/fw
+		mkdir -p flashboot/fw
+		cp ../fw-audio/adsp.mdt ../fw-audio/adsp.b0[2-9] ../fw-audio/adsp.b[1-9][0-9] flashboot/fw/
 	fi
-	umi_firmware flashboot/fw
 	if [ -f ../fw-audio/aw882xx_acf.bin ]; then
 		mkdir -p flashboot/fw
 		cp ../fw-audio/aw882xx_acf.bin flashboot/fw/
@@ -794,11 +559,11 @@ fi
 if [ -f $IOS/system.manifest ] && [ -f $CACHE/dyld_shared_cache_arm64 ] &&
 	{ [ ! -f system.apfs ] || [ obj/stage0 -nt system.apfs ] || [ $IOS/system.manifest -nt system.apfs ] ||
 	  [ $IOS/cryptex -nt system.apfs ] || [ $IOS/cryptex-app -nt system.apfs ] || [ -n "$SYSTEM" ]; }; then
-	# what ios165/select-system.py has chosen since ios165/rootfs was extracted is not in it, and would not be
+	# what sysimage/select-system.py has chosen since sysimage/rootfs was extracted is not in it, and would not be
 	# in the image either (so it was once with the audio plug-ins and the system's sounds: iOS found no
 	# speaker and played nothing, though our device was there and the kernel's side worked)
 	if [ -f $IOS/.done-rootfs ] && [ $IOS/select-system.py -nt $IOS/.done-rootfs ]; then
-		echo "build.sh: ios165/select-system.py has changed since ios165/rootfs was extracted: run KEEP=1 ios165/fetch.sh" >&2
+		echo "build.sh: sysimage/select-system.py has changed since sysimage/rootfs was extracted: run KEEP=1 sysimage/fetch.sh" >&2
 		exit 1
 	fi
 	rm -rf sysroot
@@ -806,8 +571,8 @@ if [ -f $IOS/system.manifest ] && [ -f $CACHE/dyld_shared_cache_arm64 ] &&
 	# launchd must load our choice of jobs, not all 500 that iOS has
 	rm -rf sysroot/System/Library/LaunchDaemons sysroot/System/Library/NanoLaunchDaemons \
 		sysroot/System/Library/LaunchAngels sysroot/System/Library/xpc/launchd.plist
-	ln -s /hackios/LaunchDaemons sysroot/System/Library/LaunchDaemons
-	mkdir -p sysroot/hackios sysroot/sbin
+	ln -s /redwood/LaunchDaemons sysroot/System/Library/LaunchDaemons
+	mkdir -p sysroot/redwood sysroot/sbin
 	# where the kernel mounts the iOS root container off the phone's flash (boot-arg apfs_volume=):
 	# iOS has no /System/Volumes, and nothing can make a directory in this image once it is built
 	mkdir -p sysroot/System/Volumes/iOS
@@ -819,12 +584,27 @@ if [ -f $IOS/system.manifest ] && [ -f $CACHE/dyld_shared_cache_arm64 ] &&
 	mv sysroot/sbin/launchd sysroot/sbin/launchd.ios
 	cp obj/stage0 sysroot/sbin/launchd
 	# the audio DSP's firmware, the phone's own from ../fw-audio (never in the repository), where the kernel reads
-	# it once the root is mounted (bsd/dev/hk_adsp.c, adsp=1): 20 MB that do not fit beside GL=1 in the small image
+	# it once the root is mounted (bsd/dev/hakios.adsp.c, adsp=1): 20 MB that do not fit beside GL=1 in the small image
 	if [ -f ../fw-audio/adsp.mdt ]; then
-		install_adsp_firmware sysroot/fw
+		mkdir -p sysroot/fw
+		cp ../fw-audio/adsp.mdt ../fw-audio/adsp.b0[2-9] ../fw-audio/adsp.b[1-9][0-9] sysroot/fw/
 	fi
-	umi_firmware sysroot/fw
-	# ... and the speaker amplifiers' configuration, the phone's /vendor/etc/aw882xx_acf.bin (bsd/dev/hk_speaker.c,
+	# MPSS firmware is much too large for the small boot image. Keep it in the system APFS,
+	# only when explicitly requested, after checking every loadable segment against this DTB.
+	# This stages the files; a separate XNU MPSS driver is still required to start the modem.
+	if [ -n "$MODEM" ]; then
+		[ -f ../fw-modem/modem.mdt ] || { echo "build.sh: MODEM=1 needs ../fw-modem/modem.mdt" >&2; exit 1; }
+		../devices/poco-x5-pro/tools/modem_firmware.py --dtb ../devices/poco-x5-pro/prebuilt/device-tree.dtb --firmware-dir ../fw-modem \
+			--node /soc/qcom,mss@4080000 >/dev/null
+		mkdir -p sysroot/fw
+		cp ../fw-modem/modem.mdt ../fw-modem/modem.b[0-9][0-9] sysroot/fw/
+		# ... and the firmware partition's image/ (its mcfg configurations and the registry's *.jsn, pulled from
+		# the phone's /vendor/firmware_mnt/image into ../fw-modem/image), which the modem reads over TFTP (hakios.mpss.c)
+		if [ -d ../fw-modem/image ]; then
+			rm -rf sysroot/fw/image && cp -R ../fw-modem/image sysroot/fw/image
+		fi
+	fi
+	# ... and the speaker amplifiers' configuration, the phone's /vendor/etc/aw882xx_acf.bin (bsd/dev/hakios.speaker.c,
 	# for sound=3): Android's own register values, which are not in the repository either
 	if [ -f ../fw-audio/aw882xx_acf.bin ]; then
 		mkdir -p sysroot/fw
@@ -850,46 +630,9 @@ if [ -f $IOS/system.manifest ] && [ -f $CACHE/dyld_shared_cache_arm64 ] &&
 		done
 		echo "  the package manager's prefix: $(du -sh sysroot/jb | cut -f1) as /jb (init puts it at /var/jb)"
 	fi
-	# An application of this port's own, registered the same free way the prefix's are: a plain
-	# directory in /Applications, which the LaunchServices database is rebuilt from at every boot
-	# by walking that directory -- no installd, no container, no uicache. cp -a and not a link,
-	# because a bundle of symbolic links is refused ("Unable to register") and the boot-time
-	# registrar passes over mount points.
-	#
-	# This is in the SYSTEM image and not the small one, so a change to it costs a 2.5 GB rebuild
-	# and a re-upload: SYSTEM=1 is what makes this line run again.
-	if [ -d obj/HKTriangle.app ]; then
-		cp -a obj/HKTriangle.app sysroot/Applications/
-		echo "  HKTriangle.app in /Applications (com.hackios.triangle, scheme hktriangle:)"
-	fi
-	# Applications from outside this tree: every .app in ../apps, which is kept out of the
-	# repository the way ../fw-* and ../jb are, so that nothing of somebody else's package can
-	# reach it. They go into /Applications beside the port's own on exactly the same terms --
-	# a plain directory, which LaunchServices finds by walking that folder at every boot.
-	#
-	# cp -aL and not cp -a: a bundle made of symbolic links is refused ("Unable to register"),
-	# so whatever a link points at is copied as the file itself.
-	for app in ../apps/*.app; do
-		[ -d "$app" ] || continue
-		cp -aL "$app" sysroot/Applications/
-		echo "  ${app##*/} in /Applications ($(du -sm "$app" | cut -f1) MB from ../apps)"
-	done
 	# our audio device, where the audio server looks for such plug-ins (and for no others: Apple's are left out)
 	mkdir -p sysroot/System/Library/Audio/Plug-Ins/HAL
-	ln -s /hackios/lib/HKAudio.driver sysroot/System/Library/Audio/Plug-Ins/HAL/HKAudio.driver
-	# ... and our Metal plug-in, at the one path Metal's own discovery can open: step 3 composes
-	# "/System/Library/Extensions/" + MetalPluginName + ".bundle" and opens it with NSBundle
-	# (docs/metal.md 1). Same shape as the audio plug-in above -- a link into /hackios/lib, where
-	# the bundle itself travels in the small image -- because this directory is iOS's own and
-	# nothing can be added to it after the image is built.
-	#
-	# This link is inert on a boot that does not ask for Metal: nothing composes that path until
-	# MetalPluginName is on the IOAcceleratorES service, and only boot-arg metal=1 lets a process
-	# put it there (iokit/Kernel/MiniIOMobileFramebuffer.cpp). So it is not behind a switch of its
-	# own -- a switch here would cost a 2.5 GB system.apfs rebuild and a re-upload every time it
-	# was flipped, and buy nothing a missing boot-arg does not already buy.
-	mkdir -p sysroot/System/Library/Extensions
-	ln -s /hackios/lib/HKMetal.bundle sysroot/System/Library/Extensions/HKMetal.bundle
+	ln -s /redwood/lib/HakiosAudio.driver sysroot/System/Library/Audio/Plug-Ins/HAL/HakiosAudio.driver
 	# the OS cryptex: on a device a separate volume grafted at /System/Cryptexes/OS. It holds the dyld
 	# shared cache (dyld looks there first) and a few libraries and resources outside the cache.
 	mkdir -p sysroot/System/Cryptexes
