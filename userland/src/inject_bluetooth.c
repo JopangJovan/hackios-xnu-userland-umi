@@ -5,12 +5,14 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
 #include <mach/mach.h>
+#include <libkern/OSCacheControl.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 static void (*finish_init_step)(unsigned,const char *);
 static void skip_optional_error_reporting(void)
@@ -54,6 +56,26 @@ __attribute__((constructor)) static void initialize(void)
     }
     if(!image_matches) { fprintf(stderr,"UMI Bluetooth: unsupported daemon UUID; optional init unchanged\n"); return; }
     uintptr_t base=(uintptr_t)header;
+    /* The native feature initializer populates Broadcom/Apple VSC flags from
+     * Apple's model-derived chipset ranges. QCA implements neither range.
+     * Preserve its zeroing, identity and logging; skip both range bodies. */
+    uint32_t *bcm_range=(void *)(base+0x282ff4);
+    uint32_t *apple_range=(void *)(base+0x28311c);
+    if(*bcm_range!=0x51000689 || *apple_range!=0x511f4288) return;
+    vm_address_t first=(vm_address_t)bcm_range&~((vm_address_t)vm_page_size-1);
+    vm_address_t last=((vm_address_t)apple_range+vm_page_size)&~((vm_address_t)vm_page_size-1);
+    if(vm_protect(mach_task_self(),first,last-first,FALSE,VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY)!=KERN_SUCCESS) {
+        fprintf(stderr,"UMI Bluetooth: cannot disable foreign vendor capabilities\n");
+        return;
+    }
+    *bcm_range=0x12800009; /* mov w9, #-1: outside Broadcom range */
+    *apple_range=0x12800008; /* mov w8, #-1: outside Apple range */
+    sys_icache_invalidate((void *)first,last-first);
+    if(vm_protect(mach_task_self(),first,last-first,FALSE,VM_PROT_READ|VM_PROT_EXECUTE)!=KERN_SUCCESS) {
+        fprintf(stderr,"UMI Bluetooth: cannot restore feature initializer protection\n");
+        _exit(1);
+    }
+    fprintf(stderr,"UMI Bluetooth: disabled Apple/Broadcom vendor capabilities\n");
     void (**step)(void)=(void *)(base+0x7fbde0);
     const uint32_t *original=(const void *)(base+0x10b970);
     const uint32_t *completion=(const void *)(base+0x1092d8);
